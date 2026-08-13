@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>평균 홈런 더비 · 종목 6</title>
+<link rel="stylesheet" href="../css/style.css?v=5">
+</head>
+<body>
+
+<div class="game-stage">
+  <video id="video" playsinline muted style="display:none"></video>
+  <canvas id="gameCanvas"></canvas>
+
+  <div class="hud">
+    <div class="rec" id="recIndicator" style="display:none"><span class="dot"></span>REC</div>
+    <button class="home-btn" id="homeBtn">🏠</button>
+  </div>
+
+  <div class="overlay-panel" id="loadingPanel">
+    <h2>📊 평균 홈런 더비</h2>
+    <p id="loadingText">준비 중…</p>
+  </div>
+
+  <div class="overlay-panel" id="rulePanel" style="display:none">
+    <div class="rule-card">
+      <div class="rule-head">
+        <div class="rule-char">🐼</div>
+        <div>
+          <div class="rule-name">고르미</div>
+          <h2 class="rule-title">평균 홈런 더비</h2>
+        </div>
+      </div>
+      <p class="rule-cheer"></p>
+      <ul class="rule-list"></ul>
+      <div class="rule-timer"><div class="rule-timer-fill"></div></div>
+      <button class="rule-go">좋아, 시작!</button>
+    </div>
+  </div>
+
+  <div class="overlay-panel" id="raisePanel" style="display:none">
+    <div class="raise-icon" id="raiseIcon">🙋</div>
+    <h2 id="raiseText">손을 들어 주세요!</h2>
+    <div class="hold-bar"><div class="hold-fill" id="holdFill"></div></div>
+  </div>
+
+  <div class="overlay-panel ready-flash" id="readyPanel" style="display:none">
+    <h2>✋ 좋아요! 준비됐어요</h2>
+  </div>
+
+  <div class="overlay-panel" id="countdownPanel" style="display:none">
+    <div class="countdown-num" id="countNum">3</div>
+  </div>
+
+  <div class="overlay-panel" id="resultPanel" style="display:none">
+    <div id="podium"></div>
+    <div class="result-stats">
+      <div class="stat-box"><div class="num" id="statCount">0번</div><div class="label">기록</div></div>
+      <div class="stat-box"><div class="num" id="statBest">0번</div><div class="label">최고 기록</div></div>
+      <div class="stat-box"><div class="num" id="statCombo">0</div><div class="label">최고 콤보</div></div>
+    </div>
+    <video class="preview" id="previewVideo" controls playsinline style="display:none"></video>
+    <div class="action-row">
+      <button class="ghost-btn" id="savePhotoBtn">📸 사진</button>
+      <button class="ghost-btn" id="saveVideoBtn" style="display:none">🎬 3초 영상</button>
+      <button class="big-btn" id="retryBtn">🔁 한 번 더</button>
+      <button class="ghost-btn" id="homeBtn2">🎲 보드로</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import {
+  HighScore, requestWakeLock, SoundKit, FileAudioLoop,
+  HandTracker, ClipRecorder, downloadBlob,
+  drawMirroredVideo, fitCanvasToScreen, isHandRaised, getCursors,
+  AutoDifficulty, levelFromUrl, medalFor,
+  scheduleAutoRecording, ComboShot, drawPhotoOverlay,
+  ScreenShake, InputMode, PointerInput, StartGate,
+  startCamera, formatFileTimestamp, fluidPx, showSoundHint,
+  drawVignette, spawnConfetti, updateConfetti, drawConfetti,
+} from "../js/engine.js?v=2";
+import {
+  CUTE, LANE_COLORS, bob, drawSticker, drawStickerRect, drawChunkyText,
+  spawnSparkles, updateSparkles, drawSparkles, makeDrifters, drawDrifters,
+  drawBunting, drawGloveCursor, drawLevelStars, drawCuteBanner,
+} from "../js/cute.js?v=5";
+import {
+  PARTY, CHARACTERS, Board, Party, drawPartyBackdrop, drawCrowd, drawMascot,
+  showRuleCard, renderPodium, irisTransition,
+} from "../js/party.js?v=1";
+requestWakeLock();
+
+const UNIT = "f6";
+const TITLE = "평균 홈런 더비";
+const RECORD_SUFFIX = "번 타격";
+const MEDALS = { bronze: 3, silver: 6, gold: 9 };
+const CHAR = CHARACTERS[UNIT];
+const mode = InputMode.get();
+
+const video = document.getElementById("video");
+const canvas = document.getElementById("gameCanvas");
+let dims = fitCanvasToScreen(canvas);
+let drifters = makeDrifters(12, dims.w, dims.h);
+window.addEventListener("resize", () => {
+  dims = fitCanvasToScreen(canvas);
+  drifters = makeDrifters(12, dims.w, dims.h);
+  if (state === "playing") layoutZones();
+});
+
+const sound = new SoundKit();
+const bgm = new FileAudioLoop("../assets/sounds/subbgm.mp3", 0.32);
+const isMuted = () => localStorage.getItem("smo_muted") === "1";
+const party = new Party({ unit: UNIT, sound, isMuted });
+
+function goHome() { bgm.stop(); irisTransition(() => { location.href = "../index.html"; }); }
+document.getElementById("homeBtn").addEventListener("click", goHome);
+document.getElementById("homeBtn2").addEventListener("click", goHome);
+
+function randInt(min, max) { return min + Math.floor(Math.random() * (max - min + 1)); }
+function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+
+const HITTERS = [
+  ["가온", "🐯"], ["나래", "🐰"], ["다올", "🐨"], ["라온", "🦁"], ["마루", "🐷"],
+];
+
+// ---------------------------------------------------------------------------
+// 평균 문제 — 오답 보기는 아이들이 실제로 하는 실수(최댓값·최솟값과 혼동, 1 차이)로 만든다
+// ---------------------------------------------------------------------------
+function genAverage(level) {
+  const n = level === 1 ? 3 : randInt(4, 5);
+  const half = level === 2 && Math.random() < 0.4;         // 평균이 .5로 떨어지는 경우
+  const avg = half ? randInt(12, 34) + 0.5 : randInt(12, 38);
+  const total = avg * n;
+
+  // 합이 total이 되도록 값들을 흩뿌린다
+  let vals;
+  for (let t = 0; t < 400; t++) {
+    vals = [];
+    let rest = total;
+    for (let i = 0; i < n - 1; i++) {
+      const lo = Math.max(5, Math.ceil(rest - (n - 1 - i) * 55));
+      const hi = Math.min(55, Math.floor(rest - (n - 1 - i) * 5));
+      if (hi < lo) break;
+      const v = randInt(lo, hi);
+      vals.push(v); rest -= v;
+    }
+    if (vals.length === n - 1 && rest >= 5 && rest <= 55) { vals.push(rest); break; }
+    vals = null;
+  }
+  if (!vals) return genAverage(1);
+  shuffle(vals);
+
+  const people = vals.map((v, i) => ({ name: HITTERS[i][0], icon: HITTERS[i][1], v }));
+  const mx = Math.max(...vals), mn = Math.min(...vals);
+
+  if (level === 3 && Math.random() < 0.6) {
+    // 평균을 알려주고 빠진 한 값을 거꾸로 구하기
+    const hideIdx = randInt(0, n - 1);
+    const answer = people[hideIdx].v;
+    const wrongs = new Set();
+    [avg, mx, mn, answer + randInt(1, 4), answer - randInt(1, 4)].forEach((x) => {
+      if (x !== answer && x > 0) wrongs.add(Math.round(x * 2) / 2);
+    });
+    const options = shuffle([answer, ...shuffle([...wrongs]).slice(0, 3)]);
+    return {
+      type: "avg", people, hideIdx, answer, options,
+      question: `평균이 ${avg} m일 때, ${people[hideIdx].name}의 비거리는?`,
+      hint: "평균 × 사람 수 = 전체 합계. 거기서 나머지를 빼요",
+      showAvg: avg,
+    };
+  }
+
+  const answer = avg;
+  const wrongs = new Set();
+  [mx, mn, avg + 1, avg - 1, avg + 2, Math.round(total / (n + 1))].forEach((x) => {
+    if (x !== answer && x > 0) wrongs.add(Math.round(x * 2) / 2);
+  });
+  const options = shuffle([answer, ...shuffle([...wrongs]).slice(0, 3)]);
+  return {
+    type: "avg", people, hideIdx: -1, answer, options,
+    question: "평균 비거리는 몇 m일까요?",
+    hint: "모두 더한 뒤 사람 수로 나눠요",
+    showAvg: null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 가능성 문제 — 답이 0 · 1/2 · 1 로 딱 떨어지는 경우만 낸다
+// ---------------------------------------------------------------------------
+const CHANCE_OPTIONS = [
+  { label: "0", sub: "불가능하다", value: 0 },
+  { label: "1/2", sub: "반반이다", value: 0.5 },
+  { label: "1", sub: "확실하다", value: 1 },
+];
+function genChance() {
+  const total = randInt(2, 5) * 2;
+  const pick = Math.floor(Math.random() * 3);
+  const red = pick === 0 ? 0 : pick === 1 ? total / 2 : total;
+  const balls = [];
+  for (let i = 0; i < total; i++) balls.push(i < red ? "red" : "blue");
+  shuffle(balls);
+  return {
+    type: "chance", balls, red, total,
+    answer: CHANCE_OPTIONS[pick].value,
+    options: CHANCE_OPTIONS.map((o) => o.value),
+    labels: CHANCE_OPTIONS.map((o) => o.label),
+    subs: CHANCE_OPTIONS.map((o) => o.sub),
+    question: "빨간 공이 나올 가능성은?",
+    hint: "모두 빨강이면 1, 하나도 없으면 0, 반반이면 1/2",
+  };
+}
+
+let chanceTurn = false;
+function genRound(level) {
+  // 두 유형이 번갈아 나와 한 종목에서 단원 전체(평균 + 가능성)를 다룬다
+  chanceTurn = !chanceTurn;
+  return chanceTurn ? genChance() : genAverage(level);
+}
+
+const handTracker = new HandTracker();
+let pointerInput = null;
+
+async function init() {
+  if (!isMuted()) bgm.play(showSoundHint);
+  if (mode === "motion") {
+    try {
+      await startCamera(video, { width: 640, height: 480 });
+      if (!isMuted()) bgm.play(showSoundHint);
+    } catch (e) {
+      document.getElementById("loadingText").textContent = "⚠️ 카메라를 찾을 수 없어요. 카메라 권한을 확인해주세요.";
+      return;
+    }
+    document.getElementById("loadingText").textContent = "AI 모델을 불러오는 중…";
+    await handTracker.init(1);
+  } else {
+    pointerInput = new PointerInput(canvas);
+  }
+  document.getElementById("loadingPanel").style.display = "none";
+
+  await showRuleCard({
+    unit: UNIT,
+    title: "평균 홈런 더비",
+    lines: [
+      "왼쪽 <b>기록판</b>을 보고 답을 구해요.",
+      "답이 적힌 <b>거리 존</b>에 손을 대면 고르미가 그쪽으로 타구를 날려요!",
+      "<b>평균</b> 문제와 <b>가능성</b> 문제가 번갈아 나와요.",
+      "맞히면 막대가 <b>평평하게 고르게</b> 정리되는 걸 볼 수 있어요.",
+    ],
+  });
+
+  document.getElementById("raiseIcon").textContent = mode === "motion" ? "🙋" : "👆";
+  document.getElementById("raiseText").textContent = mode === "motion" ? "손을 들어 주세요!" : "화면을 터치(클릭)하면 시작!";
+  document.getElementById("raisePanel").style.display = "flex";
+  state = "raise";
+  requestAnimationFrame(loop);
+}
+
+let state = "loading";
+const holdFill = document.getElementById("holdFill");
+const startGate = new StartGate(mode, holdFill);
+
+let autoDiff, count, playEndAt;
+let round, zones, dwell = [], roundAt, resolving, hit = null, resultMark = null;
+let confetti = [], sparks = [];
+const shake = new ScreenShake();
+let recorder, comboShot, fallbackShot, autoRec, recordedBlob = null;
+const recIndicator = document.getElementById("recIndicator");
+let cursors = [];
+
+const batter = () => ({ x: dims.w * 0.70, y: dims.h * 0.93 });
+const zoneR = () => fluidPx(dims, 42, { min: 32, max: 60 });
+
+function layoutZones() {
+  const b = batter();
+  const n = round.options.length;
+  const rad = Math.min(dims.w * 0.24, dims.h * 0.42);
+  zones = round.options.map((v, i) => {
+    const a = Math.PI + (Math.PI * (i + 0.5)) / n;   // 왼쪽에서 오른쪽으로 부채꼴
+    return {
+      i, value: v,
+      label: round.type === "chance" ? round.labels[i] : String(v),
+      sub: round.type === "chance" ? round.subs[i] : "m",
+      x: b.x + Math.cos(a) * rad,
+      y: b.y + Math.sin(a) * rad * 0.92,
+    };
+  });
+  dwell = zones.map(() => 0);
+}
+
+function newRound() {
+  round = genRound(autoDiff.level);
+  layoutZones();
+  resolving = false;
+  hit = null; resultMark = null;
+  roundAt = performance.now();
+}
+
+function startCountdown() {
+  state = "countdown";
+  document.getElementById("countdownPanel").style.display = "flex";
+  const numEl = document.getElementById("countNum");
+  let n = 3;
+  numEl.textContent = n;
+  if (!isMuted()) sound.countBeep();
+  const iv = setInterval(() => {
+    n--;
+    if (n <= 0) {
+      clearInterval(iv);
+      document.getElementById("countdownPanel").style.display = "none";
+      if (!isMuted()) sound.go();
+      beginPlay();
+    } else {
+      numEl.textContent = n;
+      if (!isMuted()) sound.countBeep();
+    }
+  }, 700);
+}
+
+function beginPlay() {
+  state = "playing";
+  const prev = HighScore.get(UNIT);
+  autoDiff = new AutoDifficulty(levelFromUrl(AutoDifficulty.startLevelFromHighScore(prev)));
+  count = 0;
+  party.reset();
+  confetti = []; sparks = [];
+  chanceTurn = false;
+  playEndAt = performance.now() + 60000;
+  newRound();
+
+  recorder = new ClipRecorder(canvas, sound, 24);
+  recorder.prepare();
+  comboShot = new ComboShot(canvas);
+  fallbackShot = new ComboShot(canvas);
+  autoRec = scheduleAutoRecording(recorder, {
+    onStartVisual: () => {
+      recIndicator.style.display = "flex";
+      setTimeout(() => { if (!comboShot.captured) fallbackShot.capture(canvas); }, 1500);
+    },
+    onEndVisual: () => { recIndicator.style.display = "none"; },
+    onDone: (blob) => { recordedBlob = blob; },
+    fallbackMs: 8000,
+  });
+}
+
+function pickZone(z) {
+  if (resolving) return;
+  resolving = true;
+  const ok = Math.abs(z.value - round.answer) < 1e-9;
+  hit = { to: z, start: performance.now(), dur: 620 };
+  resultMark = { zone: z, ok, at: performance.now() };
+  if (!isMuted()) sound.shot();
+  setTimeout(() => {
+    if (state !== "playing") return;
+    if (ok) {
+      count++;
+      party.correct(z.x, z.y - zoneR(), { base: 10, elapsedMs: performance.now() - roundAt });
+      if (party.combo > 0 && party.combo === party.maxCombo) comboShot.capture(canvas);
+      autoDiff.reportCorrect();
+      autoRec.trigger();
+      shake.trigger(7, 170);
+      spawnSparkles(sparks, z.x, z.y, 24, ["#fff", PARTY.gold, CUTE.green]);
+      spawnConfetti(confetti, z.x, z.y, 34);
+    } else {
+      party.wrong(z.x, z.y - zoneR(), "다시 계산해요!");
+      autoDiff.reportWrong();
+      shake.trigger(4, 150);
+    }
+    setTimeout(() => { if (state === "playing") newRound(); }, ok ? 1500 : 1500);
+  }, 620);
+}
+
+function endGame() {
+  state = "result";
+  const { medal, label } = medalFor(count, MEDALS);
+  const prev = HighScore.get(UNIT);
+  const best = Math.max(count, prev ? prev.count : 0);
+  if (!prev || count >= prev.count) {
+    HighScore.set(UNIT, { count, bestLevel: autoDiff.level, label: `${medal} ${count}${RECORD_SUFFIX}`, at: Date.now() });
+  }
+  const earnedStar = medal !== "🏅";
+  Board.finishGame(UNIT, { coins: party.coins, earnedStar });
+  renderPodium({ unit: UNIT, medal, label, coins: party.coins, maxCombo: party.maxCombo, count, suffix: RECORD_SUFFIX, best });
+
+  document.getElementById("statCount").textContent = count + "번";
+  document.getElementById("statBest").textContent = best + "번";
+  document.getElementById("statCombo").textContent = "🔥" + party.maxCombo;
+
+  const shot = comboShot.captured ? comboShot : fallbackShot;
+  const previewVideo = document.getElementById("previewVideo");
+  const saveVideoBtn = document.getElementById("saveVideoBtn");
+  if (recordedBlob) {
+    previewVideo.src = URL.createObjectURL(recordedBlob);
+    previewVideo.style.display = "block";
+    saveVideoBtn.style.display = "inline-block";
+  }
+  document.getElementById("savePhotoBtn").onclick = async () => {
+    const blob = await shot.toBlob((c, w, h) => drawPhotoOverlay(c, w, h, { title: TITLE, record: count + RECORD_SUFFIX, medal }));
+    downloadBlob(blob, `수학체육올림픽5_평균홈런_${formatFileTimestamp()}.png`);
+  };
+  document.getElementById("saveVideoBtn").onclick = () => {
+    if (recordedBlob) downloadBlob(recordedBlob, `수학체육올림픽5_평균홈런_${formatFileTimestamp()}.${recorder.extension}`);
+  };
+  document.getElementById("resultPanel").style.display = "flex";
+  if (!isMuted()) sound.success();
+}
+
+document.getElementById("retryBtn").addEventListener("click", () => {
+  document.getElementById("resultPanel").style.display = "none";
+  document.getElementById("raisePanel").style.display = "flex";
+  startGate.since = 0; startGate.ready = false; holdFill.style.width = "0%";
+  state = "raise";
+});
+
+document.getElementById("raisePanel").addEventListener("click", () => {
+  if (state === "raise" && mode !== "motion") goReady();
+});
+
+function goReady() {
+  state = "ready";
+  document.getElementById("raisePanel").style.display = "none";
+  document.getElementById("readyPanel").style.display = "flex";
+  if (!isMuted()) sound.click();
+  setTimeout(() => {
+    document.getElementById("readyPanel").style.display = "none";
+    startCountdown();
+  }, 500);
+}
+
+function loop(tsMs) {
+  requestAnimationFrame(loop);
+  if (mode === "motion" && video.readyState < 2) return;
+  const { ctx, w, h } = dims;
+  ctx.save();
+  shake.apply(ctx);
+  if (mode === "motion") drawMirroredVideo(ctx, video, w, h);
+  else drawPartyBackdrop(ctx, dims);
+  drawDrifters(ctx, drifters, dims, 1 / 60);
+  drawBunting(ctx, dims);
+  drawCrowd(ctx, dims, party.cheerUntil);
+
+  let result = null;
+  if (mode === "motion") {
+    result = handTracker.detect(video, tsMs);
+    if (state === "raise") {
+      let raised = false;
+      if (result && result.landmarks) for (const lm of result.landmarks) if (isHandRaised(lm)) raised = true;
+      if (startGate.update(tsMs, raised)) goReady();
+    }
+  }
+  cursors = getCursors(mode, result, w, h, video, pointerInput);
+
+  if (state === "playing") stepGame();
+
+  for (const c of cursors) drawGloveCursor(ctx, c.x, c.y, fluidPx(dims, 44, { min: 32, max: 62 }));
+  ctx.restore();
+}
+
+// 기록판 — 막대그래프. 정답을 맞히면 막대가 평균 높이로 "고르게" 정리된다.
+function drawScoreboard(ctx) {
+  const { w, h } = dims;
+  const px = w * 0.025, py = h * 0.28;
+  const pw = w * 0.40, ph = h * 0.66;
+  drawStickerRect(ctx, px + pw / 2, py + ph / 2, pw, ph, fluidPx(dims, 20, { min: 13, max: 28 }), CUTE.cream, {
+    lineWidth: fluidPx(dims, 5, { min: 3.5, max: 7 }), drop: fluidPx(dims, 6, { min: 4, max: 9 }),
+  });
+
+  if (round.type === "chance") {
+    // 공 주머니 — 색깔 공을 직접 세어 가능성을 판단한다
+    drawChunkyText(ctx, "🎒 공 주머니", px + pw / 2, py + ph * 0.13,
+      fluidPx(dims, 19, { min: 14, max: 26 }), CUTE.ink, { outline: CUTE.cream, outlineWidth: 3 });
+    const n = round.balls.length;
+    const cols = Math.min(5, n);
+    const rows = Math.ceil(n / cols);
+    const cell = Math.min((pw * 0.72) / cols, (ph * 0.48) / rows);
+    const ox = px + pw / 2 - (cols * cell) / 2;
+    const oy = py + ph * 0.26;
+    round.balls.forEach((b, i) => {
+      const c = i % cols, r = Math.floor(i / cols);
+      drawSticker(ctx, ox + c * cell + cell / 2, oy + r * cell + cell / 2, cell * 0.38,
+        b === "red" ? CUTE.red : CUTE.blue, { lineWidth: Math.max(2.5, cell * 0.07) });
+    });
+    drawChunkyText(ctx, `공 ${round.total}개 중 빨강 ${round.red}개`, px + pw / 2, py + ph * 0.86,
+      fluidPx(dims, 17, { min: 12, max: 23 }), CUTE.orangeDark, { outline: CUTE.cream, outlineWidth: 3 });
+    return;
+  }
+
+  drawChunkyText(ctx, "📋 비거리 기록판", px + pw / 2, py + ph * 0.1,
+    fluidPx(dims, 19, { min: 14, max: 26 }), CUTE.ink, { outline: CUTE.cream, outlineWidth: 3 });
+
+  const people = round.people;
+  const gx0 = px + pw * 0.12, gx1 = px + pw * 0.94;
+  const gy0 = py + ph * 0.2, gy1 = py + ph * 0.82;
+  const maxV = Math.max(...people.map((p) => p.v)) * 1.12;
+  const bw = ((gx1 - gx0) / people.length) * 0.62;
+
+  // 정답을 맞히면 막대가 평균 높이로 스르륵 고르게 정리된다 — "평균 = 고르게 나눈 값"
+  let levelT = 0;
+  if (resultMark && resultMark.ok && round.hideIdx < 0) {
+    levelT = Math.min(1, Math.max(0, (performance.now() - resultMark.at - 700) / 700));
+  }
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(34,48,92,0.35)";
+  ctx.lineWidth = fluidPx(dims, 3, { min: 2, max: 4.5 });
+  ctx.beginPath(); ctx.moveTo(gx0, gy1); ctx.lineTo(gx1, gy1); ctx.stroke();
+  ctx.restore();
+
+  people.forEach((p, i) => {
+    const cx = gx0 + ((i + 0.5) / people.length) * (gx1 - gx0);
+    const hidden = i === round.hideIdx;
+    const shown = hidden ? 0 : p.v + (round.answer - p.v) * levelT;
+    const bh = (shown / maxV) * (gy1 - gy0);
+    if (!hidden) {
+      drawStickerRect(ctx, cx, gy1 - bh / 2, bw, Math.max(4, bh), Math.min(bw * 0.3, 10),
+        LANE_COLORS[i % LANE_COLORS.length], { lineWidth: Math.max(2.5, bw * 0.09), drop: 3 });
+      drawChunkyText(ctx, String(Math.round(shown * 10) / 10), cx, gy1 - bh - fluidPx(dims, 12, { min: 9, max: 16 }),
+        fluidPx(dims, 15, { min: 11, max: 20 }), CUTE.ink, { outline: "#fff", outlineWidth: 3.5 });
+    } else {
+      ctx.save();
+      ctx.setLineDash([6, 5]);
+      ctx.strokeStyle = CUTE.red; ctx.lineWidth = fluidPx(dims, 3.5, { min: 2.5, max: 5 });
+      ctx.strokeRect(cx - bw / 2, gy1 - (gy1 - gy0) * 0.45, bw, (gy1 - gy0) * 0.45);
+      ctx.restore();
+      drawChunkyText(ctx, "?", cx, gy1 - (gy1 - gy0) * 0.22, fluidPx(dims, 26, { min: 19, max: 35 }), CUTE.red,
+        { outline: "#fff", outlineWidth: 4 });
+    }
+    ctx.save();
+    ctx.fillStyle = CUTE.ink;
+    ctx.font = `900 ${fluidPx(dims, 13, { min: 9, max: 17 })}px sans-serif`;
+    ctx.textAlign = "center"; ctx.textBaseline = "top";
+    ctx.fillText(`${p.icon}${p.name}`, cx, gy1 + fluidPx(dims, 6, { min: 4, max: 9 }));
+    ctx.restore();
+  });
+
+  // 평균이 주어진 문제에서는 평균선을 그어 준다
+  if (round.showAvg) {
+    const ay = gy1 - (round.showAvg / maxV) * (gy1 - gy0);
+    ctx.save();
+    ctx.setLineDash([9, 6]);
+    ctx.strokeStyle = CUTE.purpleDark; ctx.lineWidth = fluidPx(dims, 3.5, { min: 2.5, max: 5 });
+    ctx.beginPath(); ctx.moveTo(gx0, ay); ctx.lineTo(gx1, ay); ctx.stroke();
+    ctx.restore();
+    drawChunkyText(ctx, `평균 ${round.showAvg}`, gx0 + fluidPx(dims, 36, { min: 26, max: 50 }), ay - fluidPx(dims, 11, { min: 8, max: 15 }),
+      fluidPx(dims, 14, { min: 10, max: 19 }), "#fff", { outline: CUTE.purpleDark, outlineWidth: 4 });
+  }
+  if (levelT > 0.15) {
+    drawChunkyText(ctx, "고르게 나누면 평균!", px + pw / 2, py + ph * 0.93,
+      fluidPx(dims, 16, { min: 12, max: 22 }), "#fff", { outline: CUTE.green, outlineWidth: fluidPx(dims, 5, { min: 3.5, max: 7 }) });
+  }
+}
+
+function stepGame() {
+  const { ctx, w, h } = dims;
+  const dt = 1 / 60;
+  const remain = Math.max(0, playEndAt - performance.now());
+  if (remain <= 0) { endGame(); return; }
+  const now = performance.now();
+  const armed = now - roundAt > 800;
+  const R = zoneR();
+
+  // ── 판정 ────────────────────────────────────────────────
+  if (!resolving && armed) {
+    let best = null, bd = Infinity;
+    for (const c of cursors) {
+      for (const z of zones) {
+        const d = Math.hypot(c.x - z.x, c.y - z.y);
+        if (d < R && d < bd) { bd = d; best = z; }
+      }
+    }
+    zones.forEach((z, i) => {
+      dwell[i] = best === z ? dwell[i] + dt * 1000 : Math.max(0, dwell[i] - dt * 800);
+      if (dwell[i] > 350) pickZone(z);
+    });
+  }
+
+  // ── 필드 ────────────────────────────────────────────────
+  const b = batter();
+  ctx.save();
+  ctx.fillStyle = "rgba(140,233,154,0.36)";
+  ctx.beginPath();
+  ctx.moveTo(b.x, b.y);
+  ctx.arc(b.x, b.y, Math.min(w * 0.3, h * 0.52), Math.PI, Math.PI * 2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // 거리 존
+  zones.forEach((z, i) => {
+    const isHit = resultMark && resultMark.zone === z;
+    const fill = isHit ? (resultMark.ok ? CUTE.green : CUTE.red) : CUTE.cream;
+    drawSticker(ctx, z.x, z.y, R, fill, { lineWidth: fluidPx(dims, 4.5, { min: 3, max: 7 }) });
+    drawChunkyText(ctx, z.label, z.x, z.y - R * 0.12, R * 0.62, isHit ? "#fff" : CUTE.ink,
+      { outline: isHit ? CUTE.ink : "#ffffff", outlineWidth: Math.max(3, R * 0.14) });
+    ctx.save();
+    ctx.fillStyle = isHit ? "#fff" : "rgba(34,48,92,0.7)";
+    ctx.font = `900 ${R * 0.3}px sans-serif`;
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(z.sub, z.x, z.y + R * 0.5);
+    ctx.restore();
+    if (dwell[i] > 0 && !resolving) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(z.x, z.y, R * 1.18, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, dwell[i] / 350));
+      ctx.strokeStyle = PARTY.gold; ctx.lineWidth = fluidPx(dims, 6, { min: 4, max: 9 });
+      ctx.lineCap = "round"; ctx.stroke();
+      ctx.restore();
+    }
+  });
+
+  // 타구
+  if (hit) {
+    const t = Math.min(1, (now - hit.start) / hit.dur);
+    const bx = b.x + (hit.to.x - b.x) * t;
+    const by = b.y + (hit.to.y - b.y) * t - Math.sin(Math.PI * t) * h * 0.16;
+    ctx.save();
+    ctx.font = `${R * 0.6}px sans-serif`;
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("⚾", bx, by);
+    ctx.restore();
+    if (t >= 1) hit = null;
+  }
+
+  // 고르미 타자
+  const mr = fluidPx(dims, 26, { min: 19, max: 36 });
+  drawMascot(ctx, b.x, b.y - mr * 1.1, mr, CHAR, party.currentMood(remain));
+
+  drawScoreboard(ctx);
+
+  const hudBottom = party.drawHud(ctx, dims, { remainMs: remain, count, suffix: "번" });
+  drawCuteBanner(ctx, dims, [
+    { text: round.question, size: 25, chunky: true, color: PARTY.gold },
+    { text: round.hint, size: 14, color: CUTE.ink },
+  ], fluidPx, { top: hudBottom });
+
+  party.update(dt);
+  confetti = updateConfetti(confetti, dt); drawConfetti(ctx, confetti);
+  sparks = updateSparkles(sparks, dt); drawSparkles(ctx, sparks);
+  party.drawFx(ctx, dims);
+  party.drawFeverFrame(ctx, dims);
+
+  drawVignette(ctx, w, h, 0.16);
+  drawLevelStars(ctx, dims, autoDiff.level, fluidPx);
+}
+
+init();
+</script>
+</body>
+</html>

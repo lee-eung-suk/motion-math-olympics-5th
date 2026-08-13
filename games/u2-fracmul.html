@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>분수 캐논 투척 · 종목 2</title>
+<link rel="stylesheet" href="../css/style.css?v=5">
+</head>
+<body>
+
+<div class="game-stage">
+  <video id="video" playsinline muted style="display:none"></video>
+  <canvas id="gameCanvas"></canvas>
+
+  <div class="hud">
+    <div class="rec" id="recIndicator" style="display:none"><span class="dot"></span>REC</div>
+    <button class="home-btn" id="homeBtn">🏠</button>
+  </div>
+
+  <div class="overlay-panel" id="loadingPanel">
+    <h2>🥎 분수 캐논 투척</h2>
+    <p id="loadingText">준비 중…</p>
+  </div>
+
+  <div class="overlay-panel" id="rulePanel" style="display:none">
+    <div class="rule-card">
+      <div class="rule-head">
+        <div class="rule-char">🐿️</div>
+        <div>
+          <div class="rule-name">도토리</div>
+          <h2 class="rule-title">분수 캐논 투척</h2>
+        </div>
+      </div>
+      <p class="rule-cheer"></p>
+      <ul class="rule-list"></ul>
+      <div class="rule-timer"><div class="rule-timer-fill"></div></div>
+      <button class="rule-go">좋아, 시작!</button>
+    </div>
+  </div>
+
+  <div class="overlay-panel" id="raisePanel" style="display:none">
+    <div class="raise-icon" id="raiseIcon">🙋</div>
+    <h2 id="raiseText">손을 들어 주세요!</h2>
+    <div class="hold-bar"><div class="hold-fill" id="holdFill"></div></div>
+  </div>
+
+  <div class="overlay-panel ready-flash" id="readyPanel" style="display:none">
+    <h2>✋ 좋아요! 준비됐어요</h2>
+  </div>
+
+  <div class="overlay-panel" id="countdownPanel" style="display:none">
+    <div class="countdown-num" id="countNum">3</div>
+  </div>
+
+  <div class="overlay-panel" id="resultPanel" style="display:none">
+    <div id="podium"></div>
+    <div class="result-stats">
+      <div class="stat-box"><div class="num" id="statCount">0번</div><div class="label">기록</div></div>
+      <div class="stat-box"><div class="num" id="statBest">0번</div><div class="label">최고 기록</div></div>
+      <div class="stat-box"><div class="num" id="statCombo">0</div><div class="label">최고 콤보</div></div>
+    </div>
+    <video class="preview" id="previewVideo" controls playsinline style="display:none"></video>
+    <div class="action-row">
+      <button class="ghost-btn" id="savePhotoBtn">📸 사진</button>
+      <button class="ghost-btn" id="saveVideoBtn" style="display:none">🎬 3초 영상</button>
+      <button class="big-btn" id="retryBtn">🔁 한 번 더</button>
+      <button class="ghost-btn" id="homeBtn2">🎲 보드로</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import {
+  HighScore, requestWakeLock, SoundKit, FileAudioLoop,
+  HandTracker, ClipRecorder, downloadBlob,
+  drawMirroredVideo, fitCanvasToScreen, isHandRaised, getCursors,
+  AutoDifficulty, levelFromUrl, medalFor,
+  scheduleAutoRecording, ComboShot, drawPhotoOverlay,
+  ScreenShake, InputMode, PointerInput, StartGate,
+  startCamera, formatFileTimestamp, fluidPx, showSoundHint,
+  drawVignette, spawnConfetti, updateConfetti, drawConfetti,
+} from "../js/engine.js?v=2";
+import {
+  CUTE, bob, drawSticker, drawStickerRect, drawChunkyText,
+  spawnSparkles, updateSparkles, drawSparkles, makeDrifters, drawDrifters,
+  drawBunting, drawGloveCursor, drawLevelStars, drawCuteBanner,
+} from "../js/cute.js?v=5";
+import {
+  PARTY, CHARACTERS, Board, Party, drawPartyBackdrop, drawCrowd, drawMascot,
+  showRuleCard, renderPodium, irisTransition,
+} from "../js/party.js?v=1";
+requestWakeLock();
+
+const UNIT = "f2";
+const TITLE = "분수 캐논 투척";
+const RECORD_SUFFIX = "번 명중";
+const MEDALS = { bronze: 3, silver: 5, gold: 8 };
+const CHAR = CHARACTERS[UNIT];
+const mode = InputMode.get();
+
+const video = document.getElementById("video");
+const canvas = document.getElementById("gameCanvas");
+let dims = fitCanvasToScreen(canvas);
+let drifters = makeDrifters(12, dims.w, dims.h);
+window.addEventListener("resize", () => {
+  dims = fitCanvasToScreen(canvas);
+  drifters = makeDrifters(12, dims.w, dims.h);
+});
+
+const sound = new SoundKit();
+const bgm = new FileAudioLoop("../assets/sounds/subbgm.mp3", 0.32);
+const isMuted = () => localStorage.getItem("smo_muted") === "1";
+const party = new Party({ unit: UNIT, sound, isMuted });
+
+function goHome() { bgm.stop(); irisTransition(() => { location.href = "../index.html"; }); }
+document.getElementById("homeBtn").addEventListener("click", goHome);
+document.getElementById("homeBtn2").addEventListener("click", goHome);
+
+function randInt(min, max) { return min + Math.floor(Math.random() * (max - min + 1)); }
+function gcd(a, b) { return b === 0 ? a : gcd(b, a % b); }
+
+// ---------------------------------------------------------------------------
+// 문제 만들기 — 던진 공이 날아갈 거리(m)가 곧 분수식의 값이다.
+// 눈금자는 0~12 m, 0.5 m 간격이므로 답이 항상 0.5의 배수가 되도록 만든다.
+// ---------------------------------------------------------------------------
+const MAXM = 12;
+function fracText(n, d) { return `${n}/${d}`; }
+function mixedText(w, n, d) { return w > 0 ? `${w}와 ${n}/${d}` : fracText(n, d); }
+
+// 교과서 문제는 늘 기약분수로 제시되므로 3/6 같은 꼴이 나오지 않게 한다
+function properFrac(maxD) {
+  for (let i = 0; i < 60; i++) {
+    const d = randInt(2, maxD);
+    const n = randInt(1, d - 1);
+    if (gcd(n, d) === 1) return { n, d };
+  }
+  return { n: 1, d: 2 };
+}
+
+function genRound(level) {
+  for (let tries = 0; tries < 300; tries++) {
+    let text, value;
+    if (level === 1) {
+      // (진분수) × (자연수) — 딱 떨어지도록 자연수를 분모의 배수로 잡는다
+      const { n, d } = properFrac(6);
+      const k = randInt(2, Math.max(2, Math.floor(MAXM / n)));
+      const c = d * k;
+      value = (n / d) * c;
+      text = `${fracText(n, d)} × ${c}`;
+    } else if (level === 2) {
+      const { n, d } = properFrac(4);
+      const w = randInt(1, 2);
+      const c = randInt(2, 4);
+      if (Math.random() < 0.5) {
+        // (자연수) × (대분수)
+        value = c * (w + n / d);
+        text = `${c} × ${mixedText(w, n, d)}`;
+      } else {
+        // (대분수) × (자연수)
+        value = (w + n / d) * c;
+        text = `${mixedText(w, n, d)} × ${c}`;
+      }
+    } else {
+      if (Math.random() < 0.5) {
+        // (대분수) × (대분수)
+        const f1 = properFrac(4), w1 = randInt(1, 2);
+        const f2 = properFrac(4), w2 = randInt(1, 2);
+        value = (w1 + f1.n / f1.d) * (w2 + f2.n / f2.d);
+        text = `${mixedText(w1, f1.n, f1.d)} × ${mixedText(w2, f2.n, f2.d)}`;
+      } else {
+        // (진분수) × (진분수) × (자연수) — 약분해서 계산해야 답이 나온다
+        const f1 = properFrac(5), f2 = properFrac(5);
+        const base = f1.d * f2.d;
+        const c = base * randInt(1, Math.max(1, Math.floor(MAXM / base)));
+        value = (f1.n / f1.d) * (f2.n / f2.d) * c;
+        text = `${fracText(f1.n, f1.d)} × ${fracText(f2.n, f2.d)} × ${c}`;
+      }
+    }
+    // 눈금(0.5 m)에 딱 맞고 사거리 안에 드는 문제만 채택한다
+    const snapped = Math.round(value * 2) / 2;
+    if (Math.abs(value - snapped) > 1e-9) continue;
+    if (snapped < 1 || snapped > MAXM) continue;
+    return { text, value: snapped };
+  }
+  return { text: "3/4 × 8", value: 6 };
+}
+
+const handTracker = new HandTracker();
+let pointerInput = null;
+
+async function init() {
+  if (!isMuted()) bgm.play(showSoundHint);
+  if (mode === "motion") {
+    try {
+      await startCamera(video, { width: 640, height: 480 });
+      if (!isMuted()) bgm.play(showSoundHint);
+    } catch (e) {
+      document.getElementById("loadingText").textContent = "⚠️ 카메라를 찾을 수 없어요. 카메라 권한을 확인해주세요.";
+      return;
+    }
+    document.getElementById("loadingText").textContent = "AI 모델을 불러오는 중…";
+    await handTracker.init(1);
+  } else {
+    pointerInput = new PointerInput(canvas);
+  }
+  document.getElementById("loadingPanel").style.display = "none";
+
+  await showRuleCard({
+    unit: UNIT,
+    title: "분수 캐논 투척",
+    lines: [
+      "식을 계산해서 <b>몇 m 날아가야 하는지</b> 알아내요.",
+      "아래 <b>힘 게이지</b>가 좌우로 움직여요. 그 눈금에서 던지면 그만큼 날아가요!",
+      mode === "motion"
+        ? "손을 <b>위로 들었다가 아래로 쭉 내리면</b> 발사돼요."
+        : "화면을 <b>콕 누르면</b> 발사돼요.",
+    ],
+  });
+
+  document.getElementById("raiseIcon").textContent = mode === "motion" ? "🙋" : "👆";
+  document.getElementById("raiseText").textContent = mode === "motion" ? "손을 들어 주세요!" : "화면을 터치(클릭)하면 시작!";
+  document.getElementById("raisePanel").style.display = "flex";
+  state = "raise";
+  requestAnimationFrame(loop);
+}
+
+let state = "loading";
+const holdFill = document.getElementById("holdFill");
+const startGate = new StartGate(mode, holdFill);
+
+let autoDiff, count, playEndAt;
+let round, phase, roundAt, gaugeVal, gaugeDir, ball = null, resultMark = null;
+let handWasUp = false;
+let confetti = [], sparks = [];
+const shake = new ScreenShake();
+let recorder, comboShot, fallbackShot, autoRec, recordedBlob = null;
+const recIndicator = document.getElementById("recIndicator");
+let cursors = [];
+
+const RULER_Y = () => dims.h * 0.72;
+const RX0 = () => dims.w * 0.14;
+const RX1 = () => dims.w * 0.95;
+const mToX = (m) => RX0() + (m / MAXM) * (RX1() - RX0());
+
+function newRound() {
+  round = genRound(autoDiff.level);
+  phase = "aim";
+  roundAt = performance.now();
+  ball = null; resultMark = null;
+  gaugeVal = 0; gaugeDir = 1;
+  handWasUp = false;
+}
+
+function startCountdown() {
+  state = "countdown";
+  document.getElementById("countdownPanel").style.display = "flex";
+  const numEl = document.getElementById("countNum");
+  let n = 3;
+  numEl.textContent = n;
+  if (!isMuted()) sound.countBeep();
+  const iv = setInterval(() => {
+    n--;
+    if (n <= 0) {
+      clearInterval(iv);
+      document.getElementById("countdownPanel").style.display = "none";
+      if (!isMuted()) sound.go();
+      beginPlay();
+    } else {
+      numEl.textContent = n;
+      if (!isMuted()) sound.countBeep();
+    }
+  }, 700);
+}
+
+function beginPlay() {
+  state = "playing";
+  const prev = HighScore.get(UNIT);
+  autoDiff = new AutoDifficulty(levelFromUrl(AutoDifficulty.startLevelFromHighScore(prev)));
+  count = 0;
+  party.reset();
+  confetti = []; sparks = [];
+  playEndAt = performance.now() + 60000;
+  newRound();
+
+  recorder = new ClipRecorder(canvas, sound, 24);
+  recorder.prepare();
+  comboShot = new ComboShot(canvas);
+  fallbackShot = new ComboShot(canvas);
+  autoRec = scheduleAutoRecording(recorder, {
+    onStartVisual: () => {
+      recIndicator.style.display = "flex";
+      setTimeout(() => { if (!comboShot.captured) fallbackShot.capture(canvas); }, 1500);
+    },
+    onEndVisual: () => { recIndicator.style.display = "none"; },
+    onDone: (blob) => { recordedBlob = blob; },
+    fallbackMs: 8000,
+  });
+}
+
+function fire() {
+  if (phase !== "aim") return;
+  phase = "fly";
+  const landed = Math.round(gaugeVal * 2) / 2;   // 눈금(0.5 m)에 맞춰 떨어진다
+  ball = { landed, start: performance.now(), dur: 900 };
+  if (!isMuted()) sound.shot();
+}
+
+function resolveShot() {
+  const ok = Math.abs(ball.landed - round.value) < 0.26;
+  phase = "done";
+  resultMark = { landed: ball.landed, ok, at: performance.now() };
+  const x = mToX(ball.landed), y = RULER_Y();
+  if (ok) {
+    count++;
+    party.correct(x, y - fluidPx(dims, 60, { min: 44, max: 84 }), { base: 10, elapsedMs: performance.now() - roundAt });
+    if (party.combo > 0 && party.combo === party.maxCombo) comboShot.capture(canvas);
+    autoDiff.reportCorrect();
+    autoRec.trigger();
+    shake.trigger(7, 160);
+    spawnSparkles(sparks, x, y, 26, ["#fff", PARTY.gold, CUTE.green]);
+    spawnConfetti(confetti, x, y, 34);
+  } else {
+    party.wrong(x, y - fluidPx(dims, 60, { min: 44, max: 84 }), "아깝다!");
+    autoDiff.reportWrong();
+    shake.trigger(4, 150);
+  }
+  setTimeout(() => { if (state === "playing") newRound(); }, ok ? 900 : 1400);
+}
+
+function endGame() {
+  state = "result";
+  const { medal, label } = medalFor(count, MEDALS);
+  const prev = HighScore.get(UNIT);
+  const best = Math.max(count, prev ? prev.count : 0);
+  if (!prev || count >= prev.count) {
+    HighScore.set(UNIT, { count, bestLevel: autoDiff.level, label: `${medal} ${count}${RECORD_SUFFIX}`, at: Date.now() });
+  }
+  const earnedStar = medal !== "🏅";
+  Board.finishGame(UNIT, { coins: party.coins, earnedStar });
+  renderPodium({ unit: UNIT, medal, label, coins: party.coins, maxCombo: party.maxCombo, count, suffix: RECORD_SUFFIX, best });
+
+  document.getElementById("statCount").textContent = count + "번";
+  document.getElementById("statBest").textContent = best + "번";
+  document.getElementById("statCombo").textContent = "🔥" + party.maxCombo;
+
+  const shot = comboShot.captured ? comboShot : fallbackShot;
+  const previewVideo = document.getElementById("previewVideo");
+  const saveVideoBtn = document.getElementById("saveVideoBtn");
+  if (recordedBlob) {
+    previewVideo.src = URL.createObjectURL(recordedBlob);
+    previewVideo.style.display = "block";
+    saveVideoBtn.style.display = "inline-block";
+  }
+  document.getElementById("savePhotoBtn").onclick = async () => {
+    const blob = await shot.toBlob((c, w, h) => drawPhotoOverlay(c, w, h, { title: TITLE, record: count + RECORD_SUFFIX, medal }));
+    downloadBlob(blob, `수학체육올림픽5_분수캐논_${formatFileTimestamp()}.png`);
+  };
+  document.getElementById("saveVideoBtn").onclick = () => {
+    if (recordedBlob) downloadBlob(recordedBlob, `수학체육올림픽5_분수캐논_${formatFileTimestamp()}.${recorder.extension}`);
+  };
+  document.getElementById("resultPanel").style.display = "flex";
+  if (!isMuted()) sound.success();
+}
+
+document.getElementById("retryBtn").addEventListener("click", () => {
+  document.getElementById("resultPanel").style.display = "none";
+  document.getElementById("raisePanel").style.display = "flex";
+  startGate.since = 0; startGate.ready = false; holdFill.style.width = "0%";
+  state = "raise";
+});
+
+document.getElementById("raisePanel").addEventListener("click", () => {
+  if (state === "raise" && mode !== "motion") goReady();
+});
+
+function goReady() {
+  state = "ready";
+  document.getElementById("raisePanel").style.display = "none";
+  document.getElementById("readyPanel").style.display = "flex";
+  if (!isMuted()) sound.click();
+  setTimeout(() => {
+    document.getElementById("readyPanel").style.display = "none";
+    startCountdown();
+  }, 500);
+}
+
+function loop(tsMs) {
+  requestAnimationFrame(loop);
+  if (mode === "motion" && video.readyState < 2) return;
+  const { ctx, w, h } = dims;
+  ctx.save();
+  shake.apply(ctx);
+  if (mode === "motion") drawMirroredVideo(ctx, video, w, h);
+  else drawPartyBackdrop(ctx, dims);
+  drawDrifters(ctx, drifters, dims, 1 / 60);
+  drawBunting(ctx, dims);
+  drawCrowd(ctx, dims, party.cheerUntil);
+
+  let result = null;
+  if (mode === "motion") {
+    result = handTracker.detect(video, tsMs);
+    if (state === "raise") {
+      let raised = false;
+      if (result && result.landmarks) for (const lm of result.landmarks) if (isHandRaised(lm)) raised = true;
+      if (startGate.update(tsMs, raised)) goReady();
+    }
+  }
+  cursors = getCursors(mode, result, w, h, video, pointerInput);
+
+  if (state === "playing") stepGame();
+
+  for (const c of cursors) drawGloveCursor(ctx, c.x, c.y, fluidPx(dims, 44, { min: 32, max: 62 }), { active: phase === "aim" });
+  ctx.restore();
+}
+
+function stepGame() {
+  const { ctx, w, h } = dims;
+  const dt = 1 / 60;
+  const remain = Math.max(0, playEndAt - performance.now());
+  if (remain <= 0) { endGame(); return; }
+  const now = performance.now();
+  const armed = now - roundAt > 800;
+
+  // ── 힘 게이지 ────────────────────────────────────────────
+  if (phase === "aim") {
+    // 레벨이 오를수록 조금 빨라진다
+    const speed = MAXM / (2.4 - autoDiff.level * 0.25);
+    gaugeVal += gaugeDir * speed * dt;
+    if (gaugeVal >= MAXM) { gaugeVal = MAXM; gaugeDir = -1; }
+    if (gaugeVal <= 0) { gaugeVal = 0; gaugeDir = 1; }
+
+    // 모션: 손을 위로 들었다가 아래로 내리는 "던지는 동작"에서 발사된다
+    if (mode === "motion") {
+      const up = cursors.some((c) => c.y < h * 0.45);
+      const down = cursors.some((c) => c.y > h * 0.60);
+      if (up) handWasUp = true;
+      if (handWasUp && down && armed) { handWasUp = false; fire(); }
+    } else if (pointerInput && pointerInput.consumeJustDown() && armed) {
+      fire();
+    }
+  }
+
+  if (phase === "fly") {
+    const t = Math.min(1, (now - ball.start) / ball.dur);
+    if (t >= 1) resolveShot();
+  }
+
+  // ── 그리기 ──────────────────────────────────────────────
+  const ry = RULER_Y();
+  // 잔디 필드
+  ctx.save();
+  ctx.fillStyle = "rgba(140,233,154,0.5)";
+  ctx.fillRect(0, ry, w, h - ry);
+  ctx.restore();
+
+  // 거리 눈금자 — 0.5 m마다 작은 눈금, 1 m마다 숫자
+  ctx.save();
+  ctx.strokeStyle = CUTE.ink; ctx.lineWidth = fluidPx(dims, 4, { min: 3, max: 6 });
+  ctx.beginPath(); ctx.moveTo(RX0(), ry); ctx.lineTo(RX1(), ry); ctx.stroke();
+  const labelSize = fluidPx(dims, 15, { min: 10, max: 20 });
+  for (let m = 0; m <= MAXM; m += 0.5) {
+    const x = mToX(m);
+    const big = Number.isInteger(m);
+    ctx.beginPath();
+    ctx.moveTo(x, ry);
+    ctx.lineTo(x, ry + (big ? fluidPx(dims, 16, { min: 11, max: 22 }) : fluidPx(dims, 8, { min: 6, max: 12 })));
+    ctx.lineWidth = big ? fluidPx(dims, 3.5, { min: 2.5, max: 5 }) : fluidPx(dims, 2, { min: 1.5, max: 3 });
+    ctx.stroke();
+    if (big) {
+      ctx.fillStyle = CUTE.ink;
+      ctx.font = `900 ${labelSize}px sans-serif`;
+      ctx.textAlign = "center"; ctx.textBaseline = "top";
+      ctx.fillText(String(m), x, ry + fluidPx(dims, 19, { min: 13, max: 26 }));
+    }
+  }
+  ctx.restore();
+
+  // 대포 + 도토리
+  const cr = fluidPx(dims, 26, { min: 19, max: 36 });
+  const cannonX = w * 0.08, cannonY = ry - cr * 0.9;
+  drawStickerRect(ctx, cannonX, cannonY, cr * 2.2, cr * 1.1, cr * 0.4, CUTE.orangeDark, { lineWidth: 3.5 });
+  drawMascot(ctx, cannonX, cannonY - cr * 1.5, cr, CHAR, party.currentMood(remain));
+
+  // 힘 게이지 — 눈금자와 같은 x축을 쓰므로 "지금 던지면 저기 떨어진다"가 바로 보인다
+  if (phase === "aim") {
+    const gy = ry + fluidPx(dims, 52, { min: 38, max: 74 });
+    const gh = fluidPx(dims, 16, { min: 12, max: 24 });
+    drawStickerRect(ctx, (RX0() + RX1()) / 2, gy, RX1() - RX0(), gh, gh / 2, "rgba(255,255,255,0.75)", {
+      lineWidth: fluidPx(dims, 3, { min: 2, max: 4.5 }), drop: 3, gloss: false,
+    });
+    const gx = mToX(gaugeVal);
+    ctx.save();
+    ctx.fillStyle = PARTY.gold;
+    ctx.beginPath();
+    ctx.roundRect(RX0(), gy - gh / 2, gx - RX0(), gh, gh / 2);
+    ctx.fill();
+    ctx.restore();
+    drawSticker(ctx, gx, gy, gh * 0.85, CUTE.red, { lineWidth: 3 });
+    // 지금 눈금 값을 위쪽에 크게 보여 준다
+    drawChunkyText(ctx, `${(Math.round(gaugeVal * 2) / 2).toFixed(1)} m`, gx, ry - fluidPx(dims, 26, { min: 19, max: 36 }),
+      fluidPx(dims, 20, { min: 14, max: 27 }), "#fff", { outline: CUTE.ink, outlineWidth: fluidPx(dims, 6, { min: 4, max: 8 }) });
+    // 조준 점선
+    ctx.save();
+    ctx.strokeStyle = "rgba(255,207,63,0.85)";
+    ctx.lineWidth = fluidPx(dims, 3, { min: 2, max: 5 });
+    ctx.setLineDash([9, 7]);
+    ctx.beginPath(); ctx.moveTo(gx, ry - fluidPx(dims, 16, { min: 12, max: 22 })); ctx.lineTo(gx, ry); ctx.stroke();
+    ctx.restore();
+  }
+
+  // 날아가는 공
+  if (phase === "fly" || (resultMark && now - resultMark.at < 900)) {
+    const t = phase === "fly" ? Math.min(1, (now - ball.start) / ball.dur) : 1;
+    const bx = cannonX + (mToX(ball.landed) - cannonX) * t;
+    const by = cannonY - Math.sin(Math.PI * t) * h * 0.34;
+    ctx.save();
+    ctx.font = `${cr * 1.1}px sans-serif`;
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("🥎", bx, Math.min(by, ry));
+    ctx.restore();
+  }
+
+  // 착지 표시
+  if (resultMark) {
+    const x = mToX(resultMark.landed);
+    drawSticker(ctx, x, ry, fluidPx(dims, 14, { min: 10, max: 19 }), resultMark.ok ? CUTE.green : CUTE.red, { lineWidth: 3 });
+    if (!resultMark.ok) {
+      // 정답 위치를 점선 화살표로 알려 준다 (다음 문제는 새 값이라 외워서 맞힐 수 없다)
+      const ax = mToX(round.value);
+      ctx.save();
+      ctx.strokeStyle = CUTE.green; ctx.lineWidth = fluidPx(dims, 4, { min: 3, max: 6 });
+      ctx.setLineDash([8, 6]);
+      ctx.beginPath(); ctx.moveTo(ax, ry - fluidPx(dims, 54, { min: 38, max: 74 })); ctx.lineTo(ax, ry); ctx.stroke();
+      ctx.restore();
+      drawChunkyText(ctx, `정답 ${round.value} m`, ax, ry - fluidPx(dims, 66, { min: 48, max: 92 }),
+        fluidPx(dims, 18, { min: 13, max: 24 }), "#fff", { outline: CUTE.green, outlineWidth: fluidPx(dims, 5, { min: 3.5, max: 7 }) });
+    }
+  }
+
+  const hudBottom = party.drawHud(ctx, dims, { remainMs: remain, count, suffix: "번" });
+  drawCuteBanner(ctx, dims, [
+    { text: `${round.text} = ? m 만큼 던져요!`, size: 27, chunky: true, color: PARTY.gold },
+    { text: "계산한 거리의 눈금에서 발사하세요", size: 14, color: CUTE.ink },
+  ], fluidPx, { top: hudBottom });
+
+  party.update(dt);
+  confetti = updateConfetti(confetti, dt); drawConfetti(ctx, confetti);
+  sparks = updateSparkles(sparks, dt); drawSparkles(ctx, sparks);
+  party.drawFx(ctx, dims);
+  party.drawFeverFrame(ctx, dims);
+
+  drawVignette(ctx, w, h, 0.16);
+  drawLevelStars(ctx, dims, autoDiff.level, fluidPx);
+}
+
+init();
+</script>
+</body>
+</html>
