@@ -127,6 +127,16 @@ function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.fl
 // ---------------------------------------------------------------------------
 const PLACES = { 10: "십의 자리", 100: "백의 자리" };
 
+// 정답 범위 vs 학생 범위의 교집합/합집합 비율 (Jaccard Index)
+// 범위가 정확할수록 1.0에 가깝고, 작거나 크면 감점한다
+function computeRangeAccuracy(studLo, studHi, correctLo, correctHi) {
+  if (studLo === null || studHi === null) return 0;
+  const inter = Math.max(0, Math.min(studHi, correctHi) - Math.max(studLo, correctLo));
+  const union = (studHi - studLo) + (correctHi - correctLo) - inter;
+  if (union <= 0) return 0;
+  return Math.min(1.0, inter / union);
+}
+
 function genCondition(level) {
   if (level === 1) {
     // 이상 / 이하 / 초과 / 미만 — 정수 눈금이라 경계 포함 여부가 그대로 구간 끝이 된다
@@ -224,8 +234,8 @@ async function init() {
           ? "<b>두 손가락</b>으로 문기둥을 하나씩 잡고 벌려요."
           : "문기둥을 <b>드래그</b>해서 옮겨요.",
       "조건에 맞는 수는 <b>문 안으로 통과</b>, 아닌 수는 <b>막아내요.</b> 둘 다 점수예요!",
-      "그래서 문을 무작정 넓게 벌리면 손해예요 — <b>조건과 똑같은 폭</b>이 정답이에요.",
-      "문 위에 <b>지금 만든 범위</b>가 숫자로 계속 보여요. 그걸 보고 맞추면 돼요!",
+      "<b>문의 폭이 정확할수록 높은 점수!</b> 너무 크거나 작으면 점수가 낮아져요. 조건과 <b>정확히 같은 폭</b>일 때 만점이에요.",
+      "문 위에 <b>지금 만든 범위</b>가 숫자로 계속 보여요. 그걸 보고 정확히 맞추세요!",
     ],
   });
 
@@ -320,9 +330,9 @@ function beginPlay() {
 
 // 카드가 문 높이에 닿았을 때의 판정
 //
-// 통과시킨 것뿐 아니라 **잘 막아낸 것도 점수**로 친다. 그래야 "문을 최대한 넓게 벌려두면
-// 이득"이라는 허점이 사라진다 — 넓히면 받을 건 다 받지만 막을 걸 다 놓치고, 좁히면 그 반대다.
-// 결국 조건과 똑같은 폭으로 만들어야 점수가 가장 높아진다. 틀려도 점수를 깎지는 않는다.
+// 통과시킨 것뿐 아니라 **잘 막아낸 것도 점수**로 친다. 범위가 정확할수록 높은 점수를 준다.
+// 범위가 너무 크거나 작으면 일부 카드를 놓치거나 들여보내게 되어 자동으로 감점된다.
+// 결국 조건과 정확히 같은 폭으로 만들어야 최고 점수를 받는다.
 function resolveCard(c) {
   c.done = true;
   const passed = gateLo !== null && c.v >= gateLo && c.v <= gateHi;
@@ -332,7 +342,13 @@ function resolveCard(c) {
   if (c.good === passed) {
     count++;
     c.result = c.good ? "ok" : "blocked";
-    party.correct(x, py, { base: c.good ? 10 : 7, elapsedMs: 2500 });
+
+    // 범위 정확도에 따라 점수 계산: 정확할수록 높음
+    const rangeAccuracy = computeRangeAccuracy(gateLo, gateHi, cond.lo, cond.hi);
+    const basePoints = c.good ? 10 : 7;
+    const finalPoints = Math.round(basePoints * rangeAccuracy);
+
+    party.correct(x, py, { base: finalPoints, elapsedMs: 2500 });
     if (party.combo > 0 && party.combo === party.maxCombo) comboShot.capture(canvas);
     autoDiff.reportCorrect();
     autoRec.trigger();
