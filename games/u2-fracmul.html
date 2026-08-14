@@ -140,37 +140,29 @@ function genRound(level) {
   for (let tries = 0; tries < 300; tries++) {
     let text, value;
     if (level === 1) {
+      // ⭐1: 진분수 × 자연수
       const { n, d } = properFrac(6);
       const k = randInt(2, Math.max(2, Math.floor(MAXM / n)));
       const c = d * k;
       value = (n / d) * c;
       text = `${fracText(n, d)} × ${c}`;
     } else if (level === 2) {
-      const { n, d } = properFrac(4);
-      const w = randInt(1, 2);
-      const c = randInt(2, 4);
-      if (Math.random() < 0.5) { value = c * (w + n / d); text = `${c} × ${mixedText(w, n, d)}`; }
-      else { value = (w + n / d) * c; text = `${mixedText(w, n, d)} × ${c}`; }
+      // ⭐2: 진분수 × 진분수 (대분수 제거)
+      const f1 = properFrac(6), f2 = properFrac(6);
+      value = (f1.n / f1.d) * (f2.n / f2.d);
+      text = `${fracText(f1.n, f1.d)} × ${fracText(f2.n, f2.d)}`;
     } else {
-      if (Math.random() < 0.5) {
-        const f1 = properFrac(4), w1 = randInt(1, 2);
-        const f2 = properFrac(4), w2 = randInt(1, 2);
-        value = (w1 + f1.n / f1.d) * (w2 + f2.n / f2.d);
-        text = `${mixedText(w1, f1.n, f1.d)} × ${mixedText(w2, f2.n, f2.d)}`;
-      } else {
-        const f1 = properFrac(5), f2 = properFrac(5);
-        const base = f1.d * f2.d;
-        const c = base * randInt(1, Math.max(1, Math.floor(MAXM / base)));
-        value = (f1.n / f1.d) * (f2.n / f2.d) * c;
-        text = `${fracText(f1.n, f1.d)} × ${fracText(f2.n, f2.d)} × ${c}`;
-      }
+      // ⭐3: 진분수 × 진분수 (더 복잡한 분모)
+      const f1 = properFrac(8), f2 = properFrac(8);
+      value = (f1.n / f1.d) * (f2.n / f2.d);
+      text = `${fracText(f1.n, f1.d)} × ${fracText(f2.n, f2.d)}`;
     }
     const snapped = Math.round(value * 2) / 2;
     if (Math.abs(value - snapped) > 1e-9) continue;
     if (snapped < 1 || snapped > MAXM) continue;
     return { text, value: snapped };
   }
-  return { text: "3/4 × 8", value: 6 };
+  return { text: "1/2 × 1/2", value: 0.25 };
 }
 
 const handTracker = new HandTracker();
