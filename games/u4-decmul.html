@@ -179,12 +179,12 @@ async function init() {
     try {
       await startCamera(video, { width: 640, height: 480 });
       if (!isMuted()) bgm.play(showSoundHint);
+      document.getElementById("loadingText").textContent = "AI 모델을 불러오는 중…";
+      await handTracker.init(2);
     } catch (e) {
-      document.getElementById("loadingText").textContent = "⚠️ 카메라를 찾을 수 없어요. 카메라 권한을 확인해주세요.";
-      return;
+      cameraAvailable = false;
+      // 카메라 에러여도 게임 진행 가능하도록
     }
-    document.getElementById("loadingText").textContent = "AI 모델을 불러오는 중…";
-    await handTracker.init(2);
   } else {
     pointerInput = new PointerInput(canvas);
     bindPressPoint();
@@ -196,11 +196,11 @@ async function init() {
     title: "소수 매트 맞추기",
     lines: [
       mode === "motion"
-        ? "<b>양손이 매트의 두 꼭짓점</b>이에요. 손을 벌리면 직사각형 매트가 그려져요."
+        ? "<b>양손의 거리</b>로 가로·세로를 만들어요. 손을 벌리면 매트가 그려져요."
         : "화면을 <b>드래그</b>하면 직사각형 매트가 그려져요.",
-      "<b>금색 목표 직사각형</b>과 같은 크기를 만들어야 해요.",
-      "한 칸은 <b>0.1 m</b>이에요. 반 칸(<b>±0.05 m</b>)의 오차는 괜찮아요.",
-      "목표 크기와 같으면 <b>0.6초 그대로</b> 있어요 → 매트 완성!",
+      "화면의 <b>🎯 금색 목표</b>와 똑같은 크기를 만들면 돼요!",
+      "색깔이 변해요: <b>주황색(멀어요)</b> → <b>노랑색(가까워요)</b> → <b>초록색(딱 맞았어요)</b>",
+      "목표와 같은 크기를 <b>0.6초 유지</b>하면 완성! 한 칸(0.1m) 정도 오차는 괜찮아요.",
     ],
   });
 
@@ -225,6 +225,7 @@ let recorder, comboShot, fallbackShot, autoRec, recordedBlob = null;
 const recIndicator = document.getElementById("recIndicator");
 let cursors = [];
 let lastFrameAt = 0;
+let cameraAvailable = true;
 
 function grid() {
   const { w, h } = dims;
@@ -298,18 +299,29 @@ function sides() {
   return { a, b, area: r2(a * b) };
 }
 
-// 목표 크기와 학생이 만든 크기를 비교 (오차범위 ±0.05m)
+// 목표 크기와 학생이 만든 크기를 비교 (오차범위 ±0.1m = 한 칸)
 function matchesTarget(studentSides, targetSides) {
   if (!studentSides || !targetSides) return false;
-  const tolerance = 0.05;
+  const tolerance = 0.1;
   const sa = studentSides.a, sb = studentSides.b;
   const ta = targetSides.a, tb = targetSides.b;
 
-  // 두 변이 순서대로 일치 또는 90도 회전해서 일치
   const straightMatch = Math.abs(sa - ta) <= tolerance && Math.abs(sb - tb) <= tolerance;
   const rotatedMatch = Math.abs(sa - tb) <= tolerance && Math.abs(sb - ta) <= tolerance;
-
   return straightMatch || rotatedMatch;
+}
+
+// 목표에 얼마나 가까운지 평가 (0~1)
+function proximityScore(studentSides, targetSides) {
+  if (!studentSides || !targetSides) return 0;
+  const sa = studentSides.a, sb = studentSides.b;
+  const ta = targetSides.a, tb = targetSides.b;
+
+  const straightErr = Math.abs(sa - ta) + Math.abs(sb - tb);
+  const rotatedErr = Math.abs(sa - tb) + Math.abs(sb - ta);
+  const minErr = Math.min(straightErr, rotatedErr);
+
+  return Math.max(0, 1 - minErr / (ta + tb));
 }
 
 function confirmMat(s) {
@@ -323,9 +335,16 @@ function confirmMat(s) {
   if (party.combo > 0 && party.combo === party.maxCombo) comboShot.capture(canvas);
   autoDiff.reportCorrect();
   autoRec.trigger();
-  shake.trigger(6, 160);
-  spawnSparkles(sparks, cx, cy, 26, ["#fff", PARTY.gold, CUTE.green]);
-  spawnConfetti(confetti, cx, cy, 32);
+  shake.trigger(8, 200);
+  // 더 많은 파티클 효과
+  spawnSparkles(sparks, cx, cy, 36, ["#fff", PARTY.gold, CUTE.green, CUTE.green]);
+  spawnConfetti(confetti, cx, cy, 48);
+  // 네 모서리에서도 파티클 생성
+  const margin = 40;
+  spawnSparkles(sparks, cx - margin, cy - margin, 12, [PARTY.gold, CUTE.green]);
+  spawnSparkles(sparks, cx + margin, cy - margin, 12, [PARTY.gold, CUTE.green]);
+  spawnSparkles(sparks, cx - margin, cy + margin, 12, [PARTY.gold, CUTE.green]);
+  spawnSparkles(sparks, cx + margin, cy + margin, 12, [PARTY.gold, CUTE.green]);
   setTimeout(() => { if (state === "playing") newRound(); }, 1400);
 }
 
@@ -384,7 +403,7 @@ document.getElementById("retryBtn").addEventListener("click", () => {
 });
 
 document.getElementById("raisePanel").addEventListener("click", () => {
-  if (state === "raise" && mode !== "motion") goReady();
+  if (state === "raise") goReady();
 });
 
 function goReady() {
@@ -400,11 +419,11 @@ function goReady() {
 
 function loop(tsMs) {
   requestAnimationFrame(loop);
-  if (mode === "motion" && video.readyState < 2) return;
+  if (mode === "motion" && cameraAvailable && video.readyState < 2) return;
   const { ctx, w, h } = dims;
   ctx.save();
   shake.apply(ctx);
-  if (mode === "motion") drawMirroredVideo(ctx, video, w, h);
+  if (mode === "motion" && cameraAvailable) drawMirroredVideo(ctx, video, w, h);
   else drawPartyBackdrop(ctx, dims);
   drawDrifters(ctx, drifters, dims, 1 / 60);
   drawBunting(ctx, dims);
@@ -507,21 +526,40 @@ function stepGame() {
   ctx.strokeRect(g.ox, g.oy, g.gw, g.gh);
   ctx.restore();
 
-  // ── 목표 직사각형 (금색 반투명) ────────────────────────────
+  // ── 목표 직사각형 (밝은 금색 + 라벨 + 애니메이션) ────────────────────────────
   const targetCols = Math.round(round.sample.a / CELL_M);
   const targetRows = Math.round(round.sample.b / CELL_M);
   const targetX = g.ox + (COLS / 2 - targetCols / 2) * g.cell;
   const targetY = g.oy + (ROWS / 2 - targetRows / 2) * g.cell;
   const targetW = targetCols * g.cell;
   const targetH = targetRows * g.cell;
+
+  // 목표에 접근하면 반짝임 효과
+  const s = sides();
+  const proximity = s ? proximityScore(s, round.sample) : 0;
+  const pulse = 0.5 + 0.5 * Math.sin(now / 300);
+  const targetPulse = proximity > 0.6 ? 0.3 + pulse * 0.4 : 0.2;
+
   ctx.save();
-  ctx.fillStyle = "rgba(255,200,0,0.22)";
+  // 오차 범위 표시 (±0.1m = ±1칸)
+  ctx.fillStyle = `rgba(255,220,100,${0.06 + targetPulse * 0.08})`;
+  ctx.fillRect(targetX - g.cell, targetY - g.cell, targetW + 2 * g.cell, targetH + 2 * g.cell);
+  // 오차 범위 테두리
+  ctx.strokeStyle = `rgba(255,200,0,${0.2 + targetPulse * 0.2})`;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 2]);
+  ctx.strokeRect(targetX - g.cell, targetY - g.cell, targetW + 2 * g.cell, targetH + 2 * g.cell);
+  ctx.setLineDash([]);
+  // 목표 직사각형 본체 (학생이 접근하면 밝아짐)
+  ctx.fillStyle = `rgba(255,200,0,${0.22 + targetPulse * 0.12})`;
   ctx.fillRect(targetX, targetY, targetW, targetH);
   ctx.strokeStyle = PARTY.gold;
-  ctx.lineWidth = fluidPx(dims, 2.8, { min: 1.8, max: 4 });
-  ctx.setLineDash([8, 4]);
+  ctx.lineWidth = fluidPx(dims, 3.2 + targetPulse, { min: 2.2, max: 4.5 });
   ctx.strokeRect(targetX, targetY, targetW, targetH);
-  ctx.setLineDash([]);
+  // 목표 크기 라벨
+  const fs = fluidPx(dims, 15, { min: 12, max: 20 });
+  drawChunkyText(ctx, `목표: ${round.sample.a} × ${round.sample.b} m`, targetX + targetW / 2, targetY - fs * 1.4, fs, PARTY.gold,
+    { outline: CUTE.ink, outlineWidth: Math.max(3, fs * 0.2) });
   ctx.restore();
 
   // ── 내가 만든 매트 ──────────────────────────────────────
@@ -532,10 +570,25 @@ function stepGame() {
     const rw = Math.abs(rect.bx - rect.ax) * g.cell;
     const rh = Math.abs(rect.by - rect.ay) * g.cell;
     const ok = resultMark ? resultMark.ok : matchesTarget(s, round.sample);
+    const proximity = proximityScore(s, round.sample);
+
+    // 색상: 거리에 따라 빨강(멀음) → 노랑 → 초록(정확)
+    let fillColor, strokeColor;
+    if (ok) {
+      fillColor = "rgba(81,207,102,0.45)";
+      strokeColor = CUTE.greenDark;
+    } else if (proximity > 0.7) {
+      fillColor = "rgba(200,200,80,0.38)";
+      strokeColor = "#b8b800";
+    } else {
+      fillColor = "rgba(255,150,80,0.35)";
+      strokeColor = CUTE.orangeDark;
+    }
+
     ctx.save();
-    ctx.fillStyle = ok ? "rgba(81,207,102,0.42)" : "rgba(255,207,63,0.38)";
+    ctx.fillStyle = fillColor;
     ctx.fillRect(x, y, rw, rh);
-    ctx.strokeStyle = ok ? CUTE.greenDark : CUTE.orangeDark;
+    ctx.strokeStyle = strokeColor;
     ctx.lineWidth = fluidPx(dims, 4.5, { min: 3, max: 6.5 });
     ctx.strokeRect(x, y, rw, rh);
     ctx.restore();
@@ -590,9 +643,28 @@ function stepGame() {
   drawMascot(ctx, g.ox + g.gw + fr * 1.2, g.oy + fr * 0.6, fr, CHAR, party.currentMood(remain));
 
   const hudBottom = party.drawHud(ctx, dims, { remainMs: remain, count, suffix: "개" });
+
+  // 실시간 피드백 메시지
+  let feedbackText = `${round.sample.a} m × ${round.sample.b} m 크기를 맞춰요!`;
+  let feedbackColor = PARTY.gold;
+  const s = sides();
+  if (s && s.a > 0 && s.b > 0 && !resultMark) {
+    const prox = proximityScore(s, round.sample);
+    if (matchesTarget(s, round.sample)) {
+      feedbackText = "🎯 딱 맞았어요! 유지하세요!";
+      feedbackColor = CUTE.green;
+    } else if (prox > 0.75) {
+      feedbackText = "🔥 거의 다 왔어요! 조금만 더!";
+      feedbackColor = "#ffd700";
+    } else if (prox > 0.5) {
+      feedbackText = "👍 좋은데요! 더 정확하게!";
+      feedbackColor = "#ffb700";
+    }
+  }
+
   drawCuteBanner(ctx, dims, [
-    { text: `${round.sample.a} m × ${round.sample.b} m 크기를 맞춰요!`, size: 26, chunky: true, color: PARTY.gold },
-    { text: `(반 칸 오차는 괜찮아요)`, size: 14, color: CUTE.ink },
+    { text: feedbackText, size: 26, chunky: true, color: feedbackColor },
+    { text: `한 칸 정도 오차는 괜찮아요 (±0.1m)`, size: 13, color: CUTE.ink },
   ], fluidPx, { top: hudBottom });
 
   if (mode === "motion" && !hands.both) drawTwoHandHint(ctx, dims, fluidPx);
