@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>소수 매트 만들기 · 종목 4</title>
+<title>소수 매트 맞추기 · 종목 4</title>
 <link rel="stylesheet" href="../css/style.css?v=6">
 </head>
 <body>
@@ -28,7 +28,7 @@
         <div class="rule-char">🦊</div>
         <div>
           <div class="rule-name">재보</div>
-          <h2 class="rule-title">소수 매트 만들기</h2>
+          <h2 class="rule-title">소수 매트 맞추기</h2>
         </div>
       </div>
       <p class="rule-cheer"></p>
@@ -126,14 +126,14 @@ const r1 = (v) => Math.round(v * 10) / 10;
 const r2 = (v) => Math.round(v * 100) / 100;
 
 // ---------------------------------------------------------------------------
-// 문제 만들기 — 목표는 "넓이". 두 변은 학생이 정한다(정답 조합이 여러 개인 게 자연스럽다).
-// 화면에는 가로·세로만 보여주고 넓이는 감춘다. 그래야 학생이 직접 곱해 본다.
+// 문제 만들기 — 정답 직사각형의 크기를 sample.a, sample.b로 미리 정한다.
+// 학생은 그 크기를 보고 손으로 만들어서 맞춰야 한다.
 // ---------------------------------------------------------------------------
 function genRound(level) {
   for (let t = 0; t < 400; t++) {
     let a, b;
     if (level === 1) {
-      // (소수)×(자연수) — 한 변이 자연수라 곱셈이 간단하다
+      // (소수)×(자연수) — 한 변이 자연수라 계산이 간단하다
       a = r1(randInt(2, 15) / 10);
       b = randInt(1, 2);
     } else if (level === 2) {
@@ -193,14 +193,14 @@ async function init() {
 
   await showRuleCard({
     unit: UNIT,
-    title: "소수 매트 만들기",
+    title: "소수 매트 맞추기",
     lines: [
       mode === "motion"
         ? "<b>양손이 매트의 두 꼭짓점</b>이에요. 손을 벌리면 직사각형 매트가 그려져요."
         : "화면을 <b>드래그</b>하면 직사각형 매트가 그려져요.",
-      "가로·세로는 알려주지만 <b>넓이는 알려주지 않아요.</b> 직접 곱해서 맞춰야 해요!",
-      "한 칸은 <b>0.1 m</b>, 작은 칸 하나는 <b>0.01 m²</b>예요.",
-      "목표 넓이가 되면 <b>0.6초 그대로</b> 있어요 → 매트 완성!",
+      "<b>금색 목표 직사각형</b>과 같은 크기를 만들어야 해요.",
+      "한 칸은 <b>0.1 m</b>이에요. 반 칸(<b>±0.05 m</b>)의 오차는 괜찮아요.",
+      "목표 크기와 같으면 <b>0.6초 그대로</b> 있어요 → 매트 완성!",
     ],
   });
 
@@ -296,6 +296,20 @@ function sides() {
   const a = r1(Math.abs(rect.bx - rect.ax) * CELL_M);
   const b = r1(Math.abs(rect.by - rect.ay) * CELL_M);
   return { a, b, area: r2(a * b) };
+}
+
+// 목표 크기와 학생이 만든 크기를 비교 (오차범위 ±0.05m)
+function matchesTarget(studentSides, targetSides) {
+  if (!studentSides || !targetSides) return false;
+  const tolerance = 0.05;
+  const sa = studentSides.a, sb = studentSides.b;
+  const ta = targetSides.a, tb = targetSides.b;
+
+  // 두 변이 순서대로 일치 또는 90도 회전해서 일치
+  const straightMatch = Math.abs(sa - ta) <= tolerance && Math.abs(sb - tb) <= tolerance;
+  const rotatedMatch = Math.abs(sa - tb) <= tolerance && Math.abs(sb - ta) <= tolerance;
+
+  return straightMatch || rotatedMatch;
 }
 
 function confirmMat(s) {
@@ -458,7 +472,7 @@ function stepGame() {
   if (!resolving) {
     updateRect();
     const s = sides();
-    const match = s && s.a > 0 && s.b > 0 && Math.abs(s.area - round.area) < 0.005;
+    const match = matchesTarget(s, round.sample);
     hold = match && armed ? hold + dt * 1000 : Math.max(0, hold - dt * 900);
     if (hold > 600) confirmMat(s);
     else if (now - roundAt > 14000) timeUp();
@@ -493,6 +507,23 @@ function stepGame() {
   ctx.strokeRect(g.ox, g.oy, g.gw, g.gh);
   ctx.restore();
 
+  // ── 목표 직사각형 (금색 반투명) ────────────────────────────
+  const targetCols = Math.round(round.sample.a / CELL_M);
+  const targetRows = Math.round(round.sample.b / CELL_M);
+  const targetX = g.ox + (COLS / 2 - targetCols / 2) * g.cell;
+  const targetY = g.oy + (ROWS / 2 - targetRows / 2) * g.cell;
+  const targetW = targetCols * g.cell;
+  const targetH = targetRows * g.cell;
+  ctx.save();
+  ctx.fillStyle = "rgba(255,200,0,0.22)";
+  ctx.fillRect(targetX, targetY, targetW, targetH);
+  ctx.strokeStyle = PARTY.gold;
+  ctx.lineWidth = fluidPx(dims, 2.8, { min: 1.8, max: 4 });
+  ctx.setLineDash([8, 4]);
+  ctx.strokeRect(targetX, targetY, targetW, targetH);
+  ctx.setLineDash([]);
+  ctx.restore();
+
   // ── 내가 만든 매트 ──────────────────────────────────────
   const s = sides();
   if (rect && s) {
@@ -500,7 +531,7 @@ function stepGame() {
     const y = g.oy + Math.min(rect.ay, rect.by) * g.cell;
     const rw = Math.abs(rect.bx - rect.ax) * g.cell;
     const rh = Math.abs(rect.by - rect.ay) * g.cell;
-    const ok = resultMark ? resultMark.ok : Math.abs(s.area - round.area) < 0.005;
+    const ok = resultMark ? resultMark.ok : matchesTarget(s, round.sample);
     ctx.save();
     ctx.fillStyle = ok ? "rgba(81,207,102,0.42)" : "rgba(255,207,63,0.38)";
     ctx.fillRect(x, y, rw, rh);
@@ -560,8 +591,8 @@ function stepGame() {
 
   const hudBottom = party.drawHud(ctx, dims, { remainMs: remain, count, suffix: "개" });
   drawCuteBanner(ctx, dims, [
-    { text: `넓이가 ${round.area} m²인 매트를 만들어요!`, size: 26, chunky: true, color: PARTY.gold },
-    { text: round.hint, size: 14, color: CUTE.ink },
+    { text: `${round.sample.a} m × ${round.sample.b} m 크기를 맞춰요!`, size: 26, chunky: true, color: PARTY.gold },
+    { text: `(반 칸 오차는 괜찮아요)`, size: 14, color: CUTE.ink },
   ], fluidPx, { top: hudBottom });
 
   if (mode === "motion" && !hands.both) drawTwoHandHint(ctx, dims, fluidPx);
