@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>전개도 베이스런 · 종목 5</title>
-<link rel="stylesheet" href="../css/style.css?v=5">
+<title>상자 굴리기 · 종목 5</title>
+<link rel="stylesheet" href="../css/style.css?v=6">
 </head>
 <body>
 
@@ -18,7 +18,7 @@
   </div>
 
   <div class="overlay-panel" id="loadingPanel">
-    <h2>📦 전개도 베이스런</h2>
+    <h2>🎲 상자 굴리기</h2>
     <p id="loadingText">준비 중…</p>
   </div>
 
@@ -28,7 +28,7 @@
         <div class="rule-char">🐻</div>
         <div>
           <div class="rule-name">네모곰</div>
-          <h2 class="rule-title">전개도 베이스런</h2>
+          <h2 class="rule-title">상자 굴리기</h2>
         </div>
       </div>
       <p class="rule-cheer"></p>
@@ -55,8 +55,8 @@
   <div class="overlay-panel" id="resultPanel" style="display:none">
     <div id="podium"></div>
     <div class="result-stats">
-      <div class="stat-box"><div class="num" id="statCount">0번</div><div class="label">기록</div></div>
-      <div class="stat-box"><div class="num" id="statBest">0번</div><div class="label">최고 기록</div></div>
+      <div class="stat-box"><div class="num" id="statCount">0루</div><div class="label">진루</div></div>
+      <div class="stat-box"><div class="num" id="statBest">0루</div><div class="label">최고 기록</div></div>
       <div class="stat-box"><div class="num" id="statCombo">0</div><div class="label">최고 콤보</div></div>
     </div>
     <video class="preview" id="previewVideo" controls playsinline style="display:none"></video>
@@ -64,7 +64,7 @@
       <button class="ghost-btn" id="savePhotoBtn">📸 사진</button>
       <button class="ghost-btn" id="saveVideoBtn" style="display:none">🎬 3초 영상</button>
       <button class="big-btn" id="retryBtn">🔁 한 번 더</button>
-      <button class="ghost-btn" id="homeBtn2">🎲 보드로</button>
+      <button class="ghost-btn" id="homeBtn2">🏠 종목 선택</button>
     </div>
   </div>
 </div>
@@ -76,7 +76,7 @@ import {
   drawMirroredVideo, fitCanvasToScreen, isHandRaised, getCursors,
   AutoDifficulty, levelFromUrl, medalFor,
   scheduleAutoRecording, ComboShot, drawPhotoOverlay,
-  ScreenShake, InputMode, PointerInput, StartGate,
+  ScreenShake, InputMode, PointerInput, StartGate, SmoothedPoint,
   startCamera, formatFileTimestamp, fluidPx, showSoundHint,
   drawVignette, spawnConfetti, updateConfetti, drawConfetti,
 } from "../js/engine.js?v=2";
@@ -84,27 +84,27 @@ import {
   CUTE, LANE_COLORS, bob, drawSticker, drawStickerRect, drawChunkyText,
   spawnSparkles, updateSparkles, drawSparkles, makeDrifters, drawDrifters,
   drawBunting, drawGloveCursor, drawLevelStars, drawCuteBanner,
-} from "../js/cute.js?v=5";
+} from "../js/cute.js?v=6";
 import {
-  PARTY, CHARACTERS, Board, Party, drawPartyBackdrop, drawCrowd, drawMascot,
+  PARTY, CHARACTERS, Party, drawPartyBackdrop, drawCrowd, drawMascot,
   showRuleCard, renderPodium, irisTransition,
-} from "../js/party.js?v=1";
+} from "../js/party.js?v=2";
 requestWakeLock();
 
 const UNIT = "f5";
-const TITLE = "전개도 베이스런";
-const RECORD_SUFFIX = "번 홈인";
-const MEDALS = { bronze: 3, silver: 5, gold: 8 };
+const TITLE = "상자 굴리기";
+const RECORD_SUFFIX = "루 진루";
+const MEDALS = { bronze: 5, silver: 9, gold: 14 };
 const CHAR = CHARACTERS[UNIT];
 const mode = InputMode.get();
 
 const video = document.getElementById("video");
 const canvas = document.getElementById("gameCanvas");
 let dims = fitCanvasToScreen(canvas);
-let drifters = makeDrifters(12, dims.w, dims.h);
+let drifters = makeDrifters(10, dims.w, dims.h);
 window.addEventListener("resize", () => {
   dims = fitCanvasToScreen(canvas);
-  drifters = makeDrifters(12, dims.w, dims.h);
+  drifters = makeDrifters(10, dims.w, dims.h);
 });
 
 const sound = new SoundKit();
@@ -117,13 +117,10 @@ document.getElementById("homeBtn").addEventListener("click", goHome);
 document.getElementById("homeBtn2").addEventListener("click", goHome);
 
 function randInt(min, max) { return min + Math.floor(Math.random() * (max - min + 1)); }
-function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 
 // ---------------------------------------------------------------------------
-// 전개도를 접었을 때 어느 면이 어디로 가는지 실제로 계산한다.
-// 종이 위를 한 칸씩 굴러가는 주사위라고 생각하고, 각 칸에서 "바닥에 닿는 면"의
-// 3차원 방향을 따라간다. 두 칸의 방향이 정반대면 마주 보는 면, 수직이면 만나는 면이다.
-// 덕분에 십자형뿐 아니라 계단형 같은 낯선 전개도도 정확히 채점할 수 있다.
+// 전개도를 접어 각 칸이 입체의 어느 면이 되는지 계산한다.
+// 종이 위를 굴러가는 주사위로 보고, 각 칸에서 "바닥에 닿는 면"의 3차원 방향을 따라간다.
 // ---------------------------------------------------------------------------
 const neg = (v) => [-v[0], -v[1], -v[2]];
 const key = (v) => v.join(",");
@@ -150,90 +147,82 @@ function foldNet(cells) {
       queue.push(j);
     }
   }
-  if (state.some((s) => !s)) return null;                       // 떨어져 있는 칸이 있다
+  if (state.some((s) => !s)) return null;
   const dirs = state.map((s) => key(s.D));
-  if (new Set(dirs).size !== 6) return null;                    // 두 면이 겹친다 = 전개도가 아니다
+  if (new Set(dirs).size !== 6) return null;
   return state.map((s) => s.D);
 }
 
-// 후보 전개도들 — 접기 계산으로 실제 직육면체가 되는 것만 남긴다
 const RAW_NETS = {
-  1: [
+  easy: [
     [[1, 0], [0, 1], [1, 1], [2, 1], [3, 1], [1, 2]],   // 십자형
     [[2, 0], [0, 1], [1, 1], [2, 1], [3, 1], [2, 2]],
     [[1, 0], [1, 1], [0, 2], [1, 2], [2, 2], [3, 2]],
   ],
-  3: [
+  hard: [
     [[0, 0], [1, 0], [1, 1], [2, 1], [2, 2], [3, 2]],   // 계단형
     [[0, 0], [0, 1], [1, 1], [2, 1], [2, 2], [3, 2]],
     [[1, 0], [2, 0], [0, 1], [1, 1], [2, 1], [0, 2]],
     [[0, 0], [1, 0], [1, 1], [1, 2], [2, 2], [3, 2]],
   ],
 };
-const NETS = { 1: [], 3: [] };
-for (const lv of [1, 3]) {
-  for (const cells of RAW_NETS[lv]) {
+const NETS = { easy: [], hard: [] };
+for (const k of ["easy", "hard"]) {
+  for (const cells of RAW_NETS[k]) {
     const dirs = foldNet(cells);
-    if (dirs) NETS[lv].push({ cells, dirs });
+    if (dirs) NETS[k].push({ cells, dirs });
   }
 }
-if (NETS[3].length === 0) NETS[3] = NETS[1];
+if (!NETS.hard.length) NETS.hard = NETS.easy;
 
 const FACE_NAMES = ["가", "나", "다", "라", "마", "바"];
+const POS_LABEL = { top: "위", front: "앞", bottom: "바닥" };
 
-// ⭐1·3단계: 전개도에서 조건에 맞는 면 찾기
-function genNetRound(level) {
-  const pool = NETS[level === 1 ? 1 : 3];
-  const net = pool[Math.floor(Math.random() * pool.length)];
+// 전개도의 D벡터로 처음 자세를 정한다
+const DIR_TO_POS = {
+  "0,0,-1": "front", "0,0,1": "back",
+  "0,1,0": "top", "0,-1,0": "bottom",
+  "1,0,0": "right", "-1,0,0": "left",
+};
+function initialOrient(net) {
+  const o = {};
+  net.dirs.forEach((d, i) => { o[DIR_TO_POS[key(d)]] = i; });
+  return o;
+}
+
+// 손을 휘두른 방향으로 90° 구른다
+function roll(o, dir) {
+  if (dir === "right") return { ...o, front: o.left, right: o.front, back: o.right, left: o.back };
+  if (dir === "left") return { ...o, front: o.right, left: o.front, back: o.left, right: o.back };
+  if (dir === "up") return { ...o, top: o.front, back: o.top, bottom: o.back, front: o.bottom };
+  return { ...o, front: o.top, top: o.back, back: o.bottom, bottom: o.front };
+}
+
+function genGoal(level, net) {
   const n = net.cells.length;
   const star = randInt(0, n - 1);
   const opposite = net.dirs.findIndex((d, i) => i !== star && key(d) === key(neg(net.dirs[star])));
-
-  // 보기 4개: 정답(마주 보는 면) + 나머지 중 3개
-  const others = [...Array(n).keys()].filter((i) => i !== star && i !== opposite);
-  const options = shuffle([opposite, ...shuffle(others).slice(0, 3)]);
-  const askPerp = level === 3 && Math.random() < 0.5;
-  return {
-    type: "net", net, star, options,
-    answer: opposite,
-    question: askPerp
-      ? `${FACE_NAMES[star]} 면과 만나지 않는 면은?`
-      : `${FACE_NAMES[star]} 면과 마주 보는 면은?`,
-    hint: askPerp
-      ? "한 면과 만나지 않는 면은 마주 보는 면 하나뿐이에요"
-      : "접었을 때 서로 닿지 않고 나란히 놓이는 면이에요",
-    labels: options.map((i) => FACE_NAMES[i]),
-  };
-}
-
-// ⭐2단계: 겨냥도를 보고 수 세기
-const COUNT_Q = [
-  { q: "직육면체의 면은 모두 몇 개?", a: 6, hint: "위·아래, 앞·뒤, 양옆" },
-  { q: "직육면체의 모서리는 모두 몇 개?", a: 12, hint: "면과 면이 만나는 선이에요" },
-  { q: "직육면체의 꼭짓점은 모두 몇 개?", a: 8, hint: "모서리가 만나는 점이에요" },
-  { q: "겨냥도에서 보이지 않는 모서리는 몇 개?", a: 3, hint: "점선으로 그린 모서리를 세어요" },
-  { q: "겨냥도에서 보이지 않는 꼭짓점은 몇 개?", a: 1, hint: "뒤쪽에 숨은 점이에요" },
-  { q: "겨냥도에서 보이는 면은 몇 개?", a: 3, hint: "앞에서 볼 때 보이는 면이에요" },
-  { q: "서로 평행한 면은 몇 쌍?", a: 3, hint: "마주 보는 면끼리 한 쌍" },
-  { q: "한 면과 수직인 면은 몇 개?", a: 4, hint: "마주 보는 면 하나만 빼고 다 만나요" },
-  { q: "한 모서리와 평행한 모서리는 몇 개?", a: 3, hint: "같은 방향으로 뻗은 모서리를 세어요" },
-];
-function genCountRound() {
-  const pick = COUNT_Q[Math.floor(Math.random() * COUNT_Q.length)];
-  const opts = new Set([pick.a]);
-  while (opts.size < 4) {
-    const cand = pick.a + randInt(-4, 5);
-    if (cand >= 1 && cand !== pick.a) opts.add(cand);
+  if (level === 1) {
+    return {
+      star, goals: [{ pos: "top", face: star }],
+      text: `⭐ ${FACE_NAMES[star]} 면이 <위>로 오게 굴려요`,
+      hint: "손을 휘두르면 그 방향으로 상자가 굴러요",
+    };
   }
-  const options = shuffle([...opts]);
+  if (level === 2) {
+    let second = randInt(0, n - 1);
+    while (second === star || second === opposite) second = randInt(0, n - 1);
+    return {
+      star, goals: [{ pos: "front", face: star }, { pos: "top", face: second }],
+      text: `⭐ ${FACE_NAMES[star]} 면은 <앞>, ${FACE_NAMES[second]} 면은 <위>로!`,
+      hint: "두 조건을 동시에 맞춰야 해요",
+    };
+  }
   return {
-    type: "count", question: pick.q, hint: pick.hint,
-    answer: pick.a, options, labels: options.map(String),
+    star, goals: [{ pos: "bottom", face: opposite }],
+    text: `⭐ ${FACE_NAMES[star]} 면과 <마주 보는 면>을 바닥으로!`,
+    hint: "마주 보는 면을 바닥에 놓으면 ⭐는 자연히 위로 와요",
   };
-}
-
-function genRound(level) {
-  return level === 2 ? genCountRound() : genNetRound(level);
 }
 
 const handTracker = new HandTracker();
@@ -258,12 +247,14 @@ async function init() {
 
   await showRuleCard({
     unit: UNIT,
-    title: "전개도 베이스런",
+    title: "상자 굴리기",
     lines: [
-      "왼쪽 <b>전개도(겨냥도)</b>를 보고 문제의 답을 찾아요.",
-      "답이 적힌 <b>베이스</b>에 손을 대면 네모곰이 다이아몬드를 돌아 <b>홈인</b>해요!",
-      "틀린 베이스를 밟으면 <b>아웃</b>이에요. 점수가 깎이지는 않아요.",
-      "⭐⭐⭐단계에서는 <b>낯선 모양의 전개도</b>가 나와요.",
+      mode === "motion"
+        ? "손을 <b>좌·우·위·아래로 휘두르면</b> 그 방향으로 상자가 한 번 굴러요."
+        : "화면을 <b>드래그(스와이프)</b>하면 그 방향으로 상자가 한 번 굴러요.",
+      "왼쪽 전개도를 보고, 조건에 맞는 면이 <b>제자리에 오도록</b> 굴려요.",
+      "굴려 보면 <b>숨어 있던 면</b>이 나타나요. 머릿속으로 상상하지 말고 직접 굴려 확인!",
+      "성공하면 한 루씩 진루하고, <b>4루를 돌면 홈인</b>이에요.",
     ],
   });
 
@@ -279,51 +270,33 @@ const holdFill = document.getElementById("holdFill");
 const startGate = new StartGate(mode, holdFill);
 
 let autoDiff, count, playEndAt;
-let round, bases, roundAt, resolving, dwell = [], run = null, resultMark = null;
+let net, orient, goal, roundAt, resolving, base = 0;
+let rollAnim = null, lastRollAt = 0;
+let trail = [];
+const smooth = new SmoothedPoint(3);
 let confetti = [], sparks = [];
 const shake = new ScreenShake();
 let recorder, comboShot, fallbackShot, autoRec, recordedBlob = null;
 const recIndicator = document.getElementById("recIndicator");
 let cursors = [];
+let lastFrameAt = 0;
 
-// 다이아몬드: 홈(아래) → 1루(오른쪽) → 2루(위) → 3루(왼쪽) → 홈
-const BASE_NAMES = ["1루", "2루", "3루", "홈"];
-function diamond() {
-  const { w, h } = dims;
-  const cx = w * 0.70, cy = h * 0.63;
-  const rx = Math.min(w * 0.19, h * 0.30), ry = Math.min(w * 0.15, h * 0.26);
-  return { cx, cy, rx, ry };
-}
-function basePos(i) {
-  const d = diamond();
-  // 0=1루(오른쪽) 1=2루(위) 2=3루(왼쪽) 3=홈(아래)
-  const pts = [
-    { x: d.cx + d.rx, y: d.cy },
-    { x: d.cx, y: d.cy - d.ry },
-    { x: d.cx - d.rx, y: d.cy },
-    { x: d.cx, y: d.cy + d.ry },
-  ];
-  return pts[i];
-}
-const baseR = () => fluidPx(dims, 40, { min: 30, max: 56 });
-
-function layoutBases() {
-  bases = round.options.map((opt, i) => ({
-    i, label: round.labels[i],
-    faceIdx: round.type === "net" ? opt : null,
-    value: opt,
-    ...basePos(i),
-  }));
-  dwell = bases.map(() => 0);
-}
-
-function newRound() {
-  round = genRound(autoDiff.level);
-  layoutBases();
+function newRound(keepBase) {
+  const pool = autoDiff.level === 3 ? NETS.hard : NETS.easy;
+  net = pool[Math.floor(Math.random() * pool.length)];
+  orient = initialOrient(net);
+  goal = genGoal(autoDiff.level, net);
+  // 시작하자마자 정답이면 재미가 없으니 몇 번 굴려 흩어 놓는다
+  const dirs = ["left", "right", "up", "down"];
+  for (let i = 0; i < 5; i++) orient = roll(orient, dirs[randInt(0, 3)]);
+  if (goalMet()) for (let i = 0; i < 3; i++) orient = roll(orient, dirs[randInt(0, 3)]);
   resolving = false;
-  run = null; resultMark = null;
   roundAt = performance.now();
+  rollAnim = null; trail = []; smooth.reset();
+  if (!keepBase) base = base;
 }
+
+function goalMet() { return goal.goals.every((g) => orient[g.pos] === g.face); }
 
 function startCountdown() {
   state = "countdown";
@@ -350,10 +323,11 @@ function beginPlay() {
   state = "playing";
   const prev = HighScore.get(UNIT);
   autoDiff = new AutoDifficulty(levelFromUrl(AutoDifficulty.startLevelFromHighScore(prev)));
-  count = 0;
+  count = 0; base = 0;
   party.reset();
   confetti = []; sparks = [];
   playEndAt = performance.now() + 60000;
+  lastFrameAt = 0;
   newRound();
 
   recorder = new ClipRecorder(canvas, sound, 24);
@@ -371,30 +345,24 @@ function beginPlay() {
   });
 }
 
-function pickBase(b) {
-  if (resolving) return;
+function succeed() {
   resolving = true;
-  const ok = b.value === round.answer;
-  resultMark = { base: b, ok, at: performance.now() };
-  if (ok) {
-    // 홈인! 곰이 다이아몬드를 한 바퀴 돈다
-    run = { start: performance.now(), dur: 1500 };
-    count++;
-    party.correct(b.x, b.y - baseR() * 1.4, { base: 10, elapsedMs: performance.now() - roundAt });
-    if (party.combo > 0 && party.combo === party.maxCombo) comboShot.capture(canvas);
-    autoDiff.reportCorrect();
-    autoRec.trigger();
-    shake.trigger(7, 180);
-    spawnSparkles(sparks, b.x, b.y, 24, ["#fff", PARTY.gold, CUTE.green]);
-    const d = diamond();
-    spawnConfetti(confetti, d.cx, d.cy + d.ry, 40);
-    setTimeout(() => { if (state === "playing") newRound(); }, 1700);
-  } else {
-    party.wrong(b.x, b.y - baseR() * 1.4, "아웃! 다시 봐요");
-    autoDiff.reportWrong();
-    shake.trigger(4, 150);
-    setTimeout(() => { if (state === "playing") newRound(); }, 1500);
+  count++;
+  base++;
+  const { w, h } = dims;
+  party.correct(w * 0.62, h * 0.55, { base: 11, elapsedMs: performance.now() - roundAt });
+  if (party.combo > 0 && party.combo === party.maxCombo) comboShot.capture(canvas);
+  autoDiff.reportCorrect();
+  autoRec.trigger();
+  shake.trigger(7, 170);
+  spawnSparkles(sparks, w * 0.62, h * 0.55, 24, ["#fff", PARTY.gold, CUTE.green]);
+  const homeRun = base >= 4;
+  if (homeRun) {
+    base = 0;
+    spawnConfetti(confetti, w * 0.62, h * 0.55, 44);
+    if (!isMuted()) sound.fever();
   }
+  setTimeout(() => { if (state === "playing") newRound(true); }, homeRun ? 1300 : 850);
 }
 
 function endGame() {
@@ -405,12 +373,10 @@ function endGame() {
   if (!prev || count >= prev.count) {
     HighScore.set(UNIT, { count, bestLevel: autoDiff.level, label: `${medal} ${count}${RECORD_SUFFIX}`, at: Date.now() });
   }
-  const earnedStar = medal !== "🏅";
-  Board.finishGame(UNIT, { coins: party.coins, earnedStar });
   renderPodium({ unit: UNIT, medal, label, coins: party.coins, maxCombo: party.maxCombo, count, suffix: RECORD_SUFFIX, best });
 
-  document.getElementById("statCount").textContent = count + "번";
-  document.getElementById("statBest").textContent = best + "번";
+  document.getElementById("statCount").textContent = count + "루";
+  document.getElementById("statBest").textContent = best + "루";
   document.getElementById("statCombo").textContent = "🔥" + party.maxCombo;
 
   const shot = comboShot.captured ? comboShot : fallbackShot;
@@ -423,10 +389,10 @@ function endGame() {
   }
   document.getElementById("savePhotoBtn").onclick = async () => {
     const blob = await shot.toBlob((c, w, h) => drawPhotoOverlay(c, w, h, { title: TITLE, record: count + RECORD_SUFFIX, medal }));
-    downloadBlob(blob, `수학체육올림픽5_전개도베이스런_${formatFileTimestamp()}.png`);
+    downloadBlob(blob, `수학체육올림픽5_상자굴리기_${formatFileTimestamp()}.png`);
   };
   document.getElementById("saveVideoBtn").onclick = () => {
-    if (recordedBlob) downloadBlob(recordedBlob, `수학체육올림픽5_전개도베이스런_${formatFileTimestamp()}.${recorder.extension}`);
+    if (recordedBlob) downloadBlob(recordedBlob, `수학체육올림픽5_상자굴리기_${formatFileTimestamp()}.${recorder.extension}`);
   };
   document.getElementById("resultPanel").style.display = "flex";
   if (!isMuted()) sound.success();
@@ -454,6 +420,146 @@ function goReady() {
   }, 500);
 }
 
+// ── 스와이프 감지: 짧은 시간 안에 한 방향으로 크게 움직이면 한 번 구른다 ──
+function detectSwipe(now) {
+  const active = mode === "motion"
+    ? cursors.length > 0
+    : (pointerInput && pointerInput.down && pointerInput.points.length > 0);
+  if (!active) { trail = []; return; }
+  const raw = mode === "motion" ? cursors[0] : pointerInput.points[0];
+  const p = smooth.push(raw.x, raw.y);
+  trail.push({ t: now, x: p.x, y: p.y });
+  while (trail.length && now - trail[0].t > 220) trail.shift();
+  if (trail.length < 3) return;
+  if (now - lastRollAt < 420) return;               // 한 번 구른 뒤엔 잠깐 쉰다
+
+  const o = trail[0];
+  const dx = p.x - o.x, dy = p.y - o.y;
+  const thX = dims.w * 0.085, thY = dims.h * 0.10;
+  let dir = null;
+  if (Math.abs(dx) > Math.abs(dy)) { if (Math.abs(dx) > thX) dir = dx > 0 ? "right" : "left"; }
+  else if (Math.abs(dy) > thY) dir = dy > 0 ? "down" : "up";
+  if (!dir) return;
+
+  orient = roll(orient, dir);
+  rollAnim = { dir, at: now };
+  lastRollAt = now;
+  trail = []; smooth.reset();
+  if (!isMuted()) sound.pop();
+  if (goalMet()) succeed();
+}
+
+// ── 겨냥도 그리기: 앞·위·오른쪽 세 면이 보인다 ──
+function drawBox(ctx, cx, cy, size) {
+  const W = size * 1.05, H = size * 0.85, D = size * 0.42;
+  const ox = D * 0.62, oy = -D * 0.52;
+
+  // 구르는 순간 살짝 눌렸다 펴진다
+  let sx = 1, sy = 1;
+  if (rollAnim) {
+    const t = Math.min(1, (performance.now() - rollAnim.at) / 220);
+    const k = Math.sin(Math.PI * t) * 0.16;
+    if (rollAnim.dir === "left" || rollAnim.dir === "right") { sx = 1 - k; sy = 1 + k; }
+    else { sx = 1 + k; sy = 1 - k; }
+    if (t >= 1) rollAnim = null;
+  }
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(sx, sy);
+  ctx.translate(-cx, -cy);
+
+  const x0 = cx - W / 2, y0 = cy + H / 2;
+  const F = [[x0, y0], [x0 + W, y0], [x0 + W, y0 - H], [x0, y0 - H]];
+  const B = F.map(([x, y]) => [x + ox, y + oy]);
+
+  const faceFill = (i) => (i === goal.star ? PARTY.gold : LANE_COLORS[i % LANE_COLORS.length]);
+  const poly = (pts, fill) => {
+    ctx.beginPath();
+    ctx.moveTo(...pts[0]);
+    for (const p of pts.slice(1)) ctx.lineTo(...p);
+    ctx.closePath();
+    ctx.fillStyle = fill; ctx.fill();
+    ctx.strokeStyle = CUTE.ink; ctx.lineWidth = Math.max(2.5, size * 0.035); ctx.stroke();
+  };
+  const label = (pts, i, scale = 1) => {
+    const mx = pts.reduce((s, p) => s + p[0], 0) / pts.length;
+    const my = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+    const fs = size * 0.34 * scale;
+    drawChunkyText(ctx, FACE_NAMES[i], mx, my, fs, "#fff",
+      { outline: CUTE.ink, outlineWidth: Math.max(3, fs * 0.2) });
+    if (i === goal.star) {
+      ctx.save();
+      ctx.font = `${size * 0.26}px sans-serif`;
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText("⭐", mx, my - size * 0.28);
+      ctx.restore();
+    }
+  };
+
+  // 오른쪽 → 위 → 앞 순으로 그려야 앞면이 위에 온다
+  const right = [F[1], F[2], B[2], B[1]];
+  const top = [F[3], F[2], B[2], B[3]];
+  poly(right, faceFill(orient.right));
+  poly(top, faceFill(orient.top));
+  poly(F, faceFill(orient.front));
+  label(right, orient.right, 0.62);   // 옆면은 좁으니 작게
+  label(top, orient.top, 0.62);       // 윗면도 눌려 보이므로 작게
+  label(F, orient.front);
+
+  // 보이지 않는 모서리 (뒤쪽 왼쪽 아래 꼭짓점에 모인다)
+  ctx.save();
+  ctx.setLineDash([5, 4]);
+  ctx.lineWidth = Math.max(1.8, size * 0.022);
+  ctx.strokeStyle = "rgba(34,48,92,0.5)";
+  ctx.beginPath();
+  ctx.moveTo(...B[0]); ctx.lineTo(...B[1]);
+  ctx.moveTo(...B[0]); ctx.lineTo(...B[3]);
+  ctx.moveTo(...B[0]); ctx.lineTo(...F[0]);
+  ctx.stroke();
+  ctx.restore();
+  ctx.restore();
+
+  // 바닥에 있는 면은 보이지 않으므로 아래에 이름표로 알려 준다
+  drawChunkyText(ctx, `바닥: ${FACE_NAMES[orient.bottom]}`, cx, cy + H / 2 + size * 0.42,
+    size * 0.24, "#fff", { outline: CUTE.ink, outlineWidth: Math.max(3, size * 0.06) });
+}
+
+// ── 전개도 (왼쪽 판) ──
+function drawNet(ctx) {
+  const { w, h } = dims;
+  const px = w * 0.025, py = h * 0.34;
+  const pw = w * 0.30, ph = h * 0.50;
+  drawStickerRect(ctx, px + pw / 2, py + ph / 2, pw, ph, fluidPx(dims, 18, { min: 12, max: 26 }), CUTE.cream, {
+    lineWidth: fluidPx(dims, 4.5, { min: 3, max: 6.5 }), drop: fluidPx(dims, 5, { min: 3.5, max: 8 }),
+  });
+  const cells = net.cells;
+  const cols = Math.max(...cells.map((c) => c[0])) + 1;
+  const rows = Math.max(...cells.map((c) => c[1])) + 1;
+  const cell = Math.min((pw * 0.8) / cols, (ph * 0.62) / rows);
+  const ox = px + pw / 2 - (cols * cell) / 2;
+  const oy = py + ph * 0.55 - (rows * cell) / 2;
+  drawChunkyText(ctx, "전개도", px + pw / 2, py + ph * 0.13,
+    fluidPx(dims, 17, { min: 12, max: 23 }), CUTE.ink, { outline: CUTE.cream, outlineWidth: 3 });
+  cells.forEach(([c, r], i) => {
+    const x = ox + c * cell + cell / 2;
+    const y = oy + r * cell + cell / 2;
+    const isStar = i === goal.star;
+    drawStickerRect(ctx, x, y, cell * 0.94, cell * 0.94, cell * 0.16,
+      isStar ? PARTY.gold : LANE_COLORS[i % LANE_COLORS.length], {
+        lineWidth: Math.max(2.2, cell * 0.07), drop: cell * 0.05,
+      });
+    drawChunkyText(ctx, FACE_NAMES[i], x, y, cell * 0.4, "#fff",
+      { outline: CUTE.ink, outlineWidth: Math.max(2.5, cell * 0.09) });
+    if (isStar) {
+      ctx.save();
+      ctx.font = `${cell * 0.3}px sans-serif`;
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText("⭐", x + cell * 0.3, y - cell * 0.3);
+      ctx.restore();
+    }
+  });
+}
+
 function loop(tsMs) {
   requestAnimationFrame(loop);
   if (mode === "motion" && video.readyState < 2) return;
@@ -479,199 +585,58 @@ function loop(tsMs) {
 
   if (state === "playing") stepGame();
 
-  for (const c of cursors) drawGloveCursor(ctx, c.x, c.y, fluidPx(dims, 44, { min: 32, max: 62 }));
+  for (const c of cursors) drawGloveCursor(ctx, c.x, c.y, fluidPx(dims, 44, { min: 32, max: 62 }), { active: !!rollAnim });
   ctx.restore();
-}
-
-// 겨냥도 — 보이지 않는 모서리는 점선으로
-function drawCuboid(ctx, cx, cy, W, H, D, opts = {}) {
-  const x0 = cx - W / 2, y0 = cy - H / 2 + D / 2;
-  const ox = D * 0.62, oy = -D * 0.52;
-  const F = [[x0, y0], [x0 + W, y0], [x0 + W, y0 - H], [x0, y0 - H]];
-  const B = F.map(([x, y]) => [x + ox, y + oy]);
-  ctx.save();
-  ctx.lineJoin = "round";
-  // 보이는 면(위·앞·오른쪽)을 옅게 칠한다
-  ctx.fillStyle = "rgba(255,207,63,0.35)";
-  ctx.beginPath(); ctx.moveTo(...F[0]); for (const p of F.slice(1)) ctx.lineTo(...p); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = "rgba(255,169,77,0.35)";
-  ctx.beginPath(); ctx.moveTo(...F[3]); ctx.lineTo(...F[2]); ctx.lineTo(...B[2]); ctx.lineTo(...B[3]); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = "rgba(255,143,199,0.3)";
-  ctx.beginPath(); ctx.moveTo(...F[1]); ctx.lineTo(...F[2]); ctx.lineTo(...B[2]); ctx.lineTo(...B[1]); ctx.closePath(); ctx.fill();
-
-  const lw = opts.lineWidth ?? Math.max(2.5, W * 0.02);
-  ctx.strokeStyle = CUTE.ink; ctx.lineWidth = lw;
-  // 보이는 모서리 9개
-  ctx.beginPath();
-  ctx.moveTo(...F[0]); for (const p of F.slice(1)) ctx.lineTo(...p); ctx.closePath();
-  ctx.moveTo(...B[1]); ctx.lineTo(...B[2]); ctx.lineTo(...B[3]);
-  ctx.moveTo(...F[1]); ctx.lineTo(...B[1]);
-  ctx.moveTo(...F[2]); ctx.lineTo(...B[2]);
-  ctx.moveTo(...F[3]); ctx.lineTo(...B[3]);
-  ctx.stroke();
-  // 보이지 않는 모서리 3개 (뒤쪽 왼쪽 아래 꼭짓점에 모인다)
-  ctx.save();
-  ctx.setLineDash([6, 5]);
-  ctx.lineWidth = lw * 0.8;
-  ctx.strokeStyle = "rgba(34,48,92,0.6)";
-  ctx.beginPath();
-  ctx.moveTo(...B[0]); ctx.lineTo(...B[1]);
-  ctx.moveTo(...B[0]); ctx.lineTo(...B[3]);
-  ctx.moveTo(...B[0]); ctx.lineTo(...F[0]);
-  ctx.stroke();
-  ctx.restore();
-  ctx.restore();
-}
-
-function drawPanel(ctx, remain) {
-  const { w, h } = dims;
-  const px = w * 0.03, py = h * 0.30;
-  const pw = w * 0.38, ph = h * 0.62;
-  drawStickerRect(ctx, px + pw / 2, py + ph / 2, pw, ph, fluidPx(dims, 20, { min: 13, max: 28 }), CUTE.cream, {
-    lineWidth: fluidPx(dims, 5, { min: 3.5, max: 7 }), drop: fluidPx(dims, 6, { min: 4, max: 9 }),
-  });
-
-  if (round.type === "count") {
-    drawCuboid(ctx, px + pw / 2, py + ph * 0.52, pw * 0.52, ph * 0.34, Math.min(pw, ph) * 0.24);
-    drawChunkyText(ctx, "겨냥도", px + pw / 2, py + ph * 0.9, fluidPx(dims, 16, { min: 11, max: 21 }), CUTE.ink, { outlineWidth: 0.1, outline: CUTE.cream });
-    return;
-  }
-
-  // 전개도 — 칸마다 이름과 색을 붙이고, 기준 면에는 ★을 단다
-  const cells = round.net.cells;
-  const cols = Math.max(...cells.map((c) => c[0])) + 1;
-  const rows = Math.max(...cells.map((c) => c[1])) + 1;
-  const cell = Math.min((pw * 0.86) / cols, (ph * 0.72) / rows);
-  const ox = px + pw / 2 - (cols * cell) / 2;
-  const oy = py + ph * 0.52 - (rows * cell) / 2;
-  cells.forEach(([c, r], i) => {
-    const x = ox + c * cell + cell / 2;
-    const y = oy + r * cell + cell / 2;
-    const isStar = i === round.star;
-    const shown = round.options.includes(i) || isStar;
-    drawStickerRect(ctx, x, y, cell * 0.96, cell * 0.96, cell * 0.16,
-      isStar ? PARTY.gold : LANE_COLORS[i % LANE_COLORS.length], {
-        lineWidth: Math.max(2.5, cell * 0.07), drop: cell * 0.05,
-      });
-    drawChunkyText(ctx, FACE_NAMES[i], x, y, cell * 0.42, "#fff",
-      { outline: CUTE.ink, outlineWidth: Math.max(2.5, cell * 0.09) });
-    if (isStar) {
-      ctx.save();
-      ctx.font = `${cell * 0.34}px sans-serif`;
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText("⭐", x + cell * 0.32, y - cell * 0.32);
-      ctx.restore();
-    }
-  });
-
-  // 정답을 맞히면 전개도가 접혀 직육면체가 되는 걸 보여 준다 — 이 종목의 하이라이트
-  if (resultMark && resultMark.ok) {
-    const t = Math.min(1, (performance.now() - resultMark.at) / 900);
-    ctx.save();
-    ctx.globalAlpha = t;
-    drawCuboid(ctx, px + pw / 2, py + ph * 0.52, pw * 0.46 * t, ph * 0.30 * t, Math.min(pw, ph) * 0.22 * t);
-    ctx.restore();
-    if (t > 0.9) {
-      drawChunkyText(ctx, "이렇게 접혀요!", px + pw / 2, py + ph * 0.9,
-        fluidPx(dims, 17, { min: 12, max: 23 }), "#fff", { outline: CUTE.green, outlineWidth: fluidPx(dims, 5, { min: 3.5, max: 7 }) });
-    }
-  }
 }
 
 function stepGame() {
   const { ctx, w, h } = dims;
-  const dt = 1 / 60;
+  // 홀드·게이지는 프레임 수가 아니라 실제 흐른 시간으로 쌓아야 한다.
+  // 느린 기기에서 프레임이 떨어지면 제한 시간만 실시간으로 흐르고 게이지는 안 차서 불리해진다.
+  const dt = lastFrameAt ? Math.min(0.06, (performance.now() - lastFrameAt) / 1000) : 1 / 60;
+  lastFrameAt = performance.now();
   const remain = Math.max(0, playEndAt - performance.now());
   if (remain <= 0) { endGame(); return; }
   const now = performance.now();
-  const armed = now - roundAt > 800;
-  const R = baseR();
 
-  // ── 판정: 베이스 위에 손이 잠깐(0.32초) 머물면 밟은 것으로 본다 ──
-  if (!resolving && armed) {
-    // 여러 베이스가 판정 범위에 걸치면 가장 가까운 하나만 센다
-    let best = null, bd = Infinity;
-    for (const c of cursors) {
-      for (const b of bases) {
-        const d = Math.hypot(c.x - b.x, c.y - b.y);
-        if (d < R && d < bd) { bd = d; best = b; }
-      }
-    }
-    bases.forEach((b, i) => {
-      dwell[i] = best === b ? dwell[i] + dt * 1000 : Math.max(0, dwell[i] - dt * 800);
-      if (dwell[i] > 320) pickBase(b);
-    });
-  }
+  if (!resolving && now - roundAt > 600) detectSwipe(now);
 
-  // ── 다이아몬드 ──────────────────────────────────────────
-  const d = diamond();
+  drawNet(ctx);
+
+  // 다이아몬드 진루 표시
+  const dx = w * 0.88, dy = h * 0.42, dr = Math.min(w * 0.055, h * 0.09);
+  const pts = [[dx, dy + dr], [dx + dr, dy], [dx, dy - dr], [dx - dr, dy]];  // 홈,1,2,3
   ctx.save();
-  ctx.fillStyle = "rgba(140,233,154,0.4)";
+  ctx.strokeStyle = "rgba(255,255,255,0.85)";
+  ctx.lineWidth = fluidPx(dims, 3, { min: 2, max: 4.5 });
   ctx.beginPath();
-  ctx.moveTo(d.cx, d.cy - d.ry * 1.35);
-  ctx.lineTo(d.cx + d.rx * 1.35, d.cy);
-  ctx.lineTo(d.cx, d.cy + d.ry * 1.35);
-  ctx.lineTo(d.cx - d.rx * 1.35, d.cy);
-  ctx.closePath();
-  ctx.fill();
-  ctx.strokeStyle = "rgba(255,255,255,0.9)";
-  ctx.lineWidth = fluidPx(dims, 5, { min: 3.5, max: 7 });
-  ctx.beginPath();
-  for (let i = 0; i < 4; i++) {
-    const p = basePos(i), q = basePos((i + 1) % 4);
-    ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y);
-  }
-  ctx.stroke();
+  pts.forEach((p, i) => (i === 0 ? ctx.moveTo(...p) : ctx.lineTo(...p)));
+  ctx.closePath(); ctx.stroke();
   ctx.restore();
-
-  // 베이스
-  bases.forEach((b, i) => {
-    const isHit = resultMark && resultMark.base === b;
-    const fill = isHit ? (resultMark.ok ? CUTE.green : CUTE.red) : CUTE.cream;
-    drawStickerRect(ctx, b.x, b.y, R * 1.7, R * 1.7, R * 0.28, fill, {
-      lineWidth: fluidPx(dims, 4, { min: 3, max: 6 }), drop: fluidPx(dims, 5, { min: 3, max: 8 }),
-    });
-    drawChunkyText(ctx, b.label, b.x, b.y, R * 0.72, isHit ? "#fff" : CUTE.ink,
-      { outline: isHit ? CUTE.ink : "#ffffff", outlineWidth: Math.max(3, R * 0.16) });
-    ctx.save();
-    ctx.fillStyle = "rgba(34,48,92,0.6)";
-    ctx.font = `900 ${fluidPx(dims, 12, { min: 9, max: 16 })}px sans-serif`;
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText(BASE_NAMES[i], b.x, b.y + R * 1.12);
-    ctx.restore();
-    if (dwell[i] > 0 && !resolving) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(b.x, b.y, R * 1.05, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, dwell[i] / 320));
-      ctx.strokeStyle = PARTY.gold; ctx.lineWidth = fluidPx(dims, 6, { min: 4, max: 9 });
-      ctx.lineCap = "round"; ctx.stroke();
-      ctx.restore();
-    }
+  pts.forEach((p, i) => {
+    const reached = i > 0 && i <= base;
+    drawSticker(ctx, p[0], p[1], dr * 0.28, reached ? PARTY.gold : CUTE.cream, { lineWidth: 2.5 });
   });
+  drawChunkyText(ctx, `${base}루`, dx, dy + dr * 1.9, fluidPx(dims, 15, { min: 11, max: 20 }), "#fff",
+    { outline: CUTE.ink, outlineWidth: 4 });
 
-  // 네모곰 — 평소엔 홈에서 방망이를 들고, 홈인할 땐 베이스를 한 바퀴 돈다
-  const br = fluidPx(dims, 24, { min: 18, max: 33 });
-  let bearPos = { x: basePos(3).x, y: basePos(3).y + R * 1.9 };
-  if (run) {
-    const t = Math.min(1, (performance.now() - run.start) / run.dur);
-    const seg = Math.min(3, Math.floor(t * 4));
-    const local = t * 4 - seg;
-    const from = seg === 0 ? basePos(3) : basePos(seg - 1);
-    const to = basePos(seg);
-    bearPos = {
-      x: from.x + (to.x - from.x) * local,
-      y: from.y + (to.y - from.y) * local - Math.sin(Math.PI * local) * br * 0.9,
-    };
-    if (t >= 1) run = null;
-  }
-  drawMascot(ctx, bearPos.x, bearPos.y, br, CHAR, party.currentMood(remain));
+  // 상자
+  const size = Math.min(w * 0.17, h * 0.26);
+  drawBox(ctx, w * 0.60, h * 0.58, size);
 
-  drawPanel(ctx, remain);
+  // 네모곰
+  const br = fluidPx(dims, 23, { min: 17, max: 31 });
+  drawMascot(ctx, w * 0.88, h * 0.72, br, CHAR, party.currentMood(remain));
 
-  const hudBottom = party.drawHud(ctx, dims, { remainMs: remain, count, suffix: "번" });
+  // 조작 안내 — 상자 아래 "바닥: X" 이름표보다 더 아래에 둔다
+  drawChunkyText(ctx, mode === "motion" ? "손을 휙 휘둘러 굴려요!" : "드래그해서 굴려요!",
+    w * 0.60, h * 0.90, fluidPx(dims, 16, { min: 12, max: 22 }), "#fff",
+    { outline: CUTE.ink, outlineWidth: fluidPx(dims, 5, { min: 3.5, max: 7 }) });
+
+  const hudBottom = party.drawHud(ctx, dims, { remainMs: remain, count, suffix: "루" });
   drawCuteBanner(ctx, dims, [
-    { text: round.question, size: 25, chunky: true, color: PARTY.gold },
-    { text: round.hint, size: 14, color: CUTE.ink },
+    { text: goal.text.replace(/[<>]/g, ""), size: 24, chunky: true, color: PARTY.gold },
+    { text: goal.hint, size: 14, color: CUTE.ink },
   ], fluidPx, { top: hudBottom });
 
   party.update(dt);

@@ -516,89 +516,12 @@ body.landing .mode-btn.selected{box-shadow:0 0 0 4px #ff6b6b, 0 12px 28px #ff6b6
   font-size:clamp(0.75rem,0.7vw+0.5rem,0.92rem);font-weight:700;color:#9aa0c0;text-align:center;
 }
 
-/* ---------- 파티 보드 (랜딩) ---------- */
-.board-tabs{display:flex;gap:8px;justify-content:center;padding:2px 0 6px;flex:0 0 auto;}
-.board-tab{
-  border:2.5px solid #22305c33;border-radius:999px;background:#ffffffcc;color:#22305c;
-  padding:6px 18px;font-weight:900;font-size:clamp(0.72rem,0.6vw+0.5rem,0.88rem);
-}
-.board-tab.on{background:linear-gradient(135deg,#ffd43b,#ffa94d);border-color:#22305c;box-shadow:0 4px 0 #d9480f;}
-
-.board-wrap{
-  position:relative;width:100%;flex:1 1 auto;min-height:0;
-  display:flex;align-items:center;justify-content:center;
-}
-.board{
-  position:relative;height:100%;aspect-ratio:16/9;max-width:min(100%,900px);
-  background:radial-gradient(ellipse at 50% 45%, #ffffffcc, #cdeafdcc 70%);
-  border:4px solid #ffffffaa;border-radius:28px;
-  box-shadow:inset 0 0 0 3px #74c0fc55, 0 12px 30px #0b3a6a22;
-}
-.board-cell{
-  position:absolute;transform:translate(-50%,-50%);
-  width:clamp(44px,8.6%,84px);aspect-ratio:1;border-radius:50%;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  border:3px solid #22305c;background:#fff;color:#22305c;
-  font-size:clamp(1rem,2.4vmin,1.7rem);line-height:1;
-  box-shadow:0 5px 0 #22305c40;padding:0;
-}
-.board-cell .bc-tag{
-  font-size:clamp(0.38rem,0.85vmin,0.54rem);font-weight:900;margin-top:2px;
-  white-space:nowrap;color:#3a5a8a;
-}
-.board-cell.unit{background:linear-gradient(160deg,#fff,#ffe8a3);}
-.board-cell.event{background:linear-gradient(160deg,#fff,#d3f9d8);}
-.board-cell.home{background:linear-gradient(160deg,#fff,#ffd8e4);}
-.board-cell.done{box-shadow:0 0 0 4px #ffd43b, 0 5px 0 #22305c40;}
-.board-cell.here{animation:cellHere 1s ease-in-out infinite;}
-@keyframes cellHere{0%,100%{transform:translate(-50%,-50%) scale(1);}50%{transform:translate(-50%,-50%) scale(1.13);}}
-.board-cell .bc-star{position:absolute;top:-8px;right:-6px;font-size:0.8rem;}
-.board-piece{
-  position:absolute;transform:translate(-50%,-50%);
-  font-size:clamp(1.3rem,3.2vmin,2.1rem);z-index:3;pointer-events:none;
-  transition:left .26s cubic-bezier(.34,1.4,.5,1), top .26s cubic-bezier(.34,1.4,.5,1);
-  filter:drop-shadow(0 4px 4px #00000035);
-}
-.board-center{
-  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
-  display:flex;flex-direction:column;align-items:center;gap:clamp(4px,1vh,8px);text-align:center;
-}
-.board-status{
-  font-size:clamp(0.78rem,0.8vw+0.5rem,1rem);font-weight:900;color:#22305c;
-  background:#ffffffdd;border:3px solid #22305c;border-radius:999px;padding:5px 16px;
-  box-shadow:0 4px 0 #22305c33;white-space:nowrap;
-}
-.dice-btn{
-  border:4px solid #22305c;border-radius:20px;background:linear-gradient(160deg,#fff,#ffe8a3);
-  width:clamp(54px,10vmin,82px);aspect-ratio:1;font-size:clamp(1.5rem,4.2vmin,2.5rem);
-  box-shadow:0 7px 0 #22305c55;display:flex;align-items:center;justify-content:center;
-}
-.dice-btn:active{transform:translateY(5px);box-shadow:0 2px 0 #22305c55;}
-.dice-btn.rolling{animation:diceRoll .42s linear infinite;}
-@keyframes diceRoll{from{transform:rotate(0) scale(1);}50%{transform:rotate(180deg) scale(1.12);}to{transform:rotate(360deg) scale(1);}}
-.board-hint{
-  font-size:clamp(0.66rem,0.55vw+0.45rem,0.8rem);font-weight:700;color:#3a5a8a;
-  background:#ffffffaa;border-radius:999px;padding:3px 12px;white-space:nowrap;
-}
-.board-reset{
-  border:none;background:none;color:#3a5a8a;font-size:0.72rem;font-weight:700;
-  text-decoration:underline;padding:2px 6px;
-}
 .trophy-banner{
   text-align:center;font-weight:900;color:#e8720c;
   font-size:clamp(0.86rem,1vw+0.6rem,1.15rem);padding:4px 0;
   animation:trophyGlow 1.4s ease-in-out infinite;
 }
 @keyframes trophyGlow{0%,100%{transform:scale(1);}50%{transform:scale(1.05);}}
-
-/* 세로 화면에서는 보드가 너무 납작해지므로 비율을 정사각에 가깝게 */
-@media (orientation:portrait){
-  .board{aspect-ratio:1/1;height:auto;width:min(100%,560px);}
-}
-@media (max-height:440px){
-  .board-cell .bc-tag{display:none;}
-}
-
 /* ---------- 별 모양 화면 전환 ---------- */
 .iris-wipe{
   position:fixed;inset:0;z-index:200;pointer-events:none;
@@ -612,3 +535,22 @@ body.landing .mode-btn.selected{box-shadow:0 0 0 4px #ff6b6b, 0 12px 28px #ff6b6
 /* 5학년판: 화면 위쪽 양끝은 코인·시간 알약이 쓰므로 홈 버튼과 REC 표시를 아래로 내린다.
    (오른쪽 아래는 난이도 별 뱃지 자리이므로 왼쪽 아래에 나란히 둔다) */
 .hud{top:auto;bottom:0;justify-content:flex-start;align-items:flex-end;gap:8px;}
+
+/* 카드에 "이 종목에서 몸으로 무엇을 하는지"를 한 줄로 적어 둔다 —
+   고르기 전에 어떤 동작인지 알면 카메라 앞에서 망설이지 않는다 */
+.card-motion{
+  font-size:clamp(0.6rem,0.5vw+0.44rem,0.72rem);font-weight:800;
+  color:#ffd166;background:#ffd16618;border:1.5px solid #ffd16640;
+  border-radius:999px;padding:3px 8px;margin-top:4px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 0 auto;
+}
+body.landing .card-motion{color:#c26a00;background:#ffd16633;border-color:#ffb70366;}
+.card.has-thumb .card-motion{display:none;}
+.star-progress{
+  text-align:center;font-weight:800;color:#ffd166;
+  font-size:clamp(0.72rem,0.7vw+0.5rem,0.88rem);padding:2px 0;
+}
+body.landing .star-progress{color:#c26a00;}
+@media (max-height:520px){
+  .card-motion{display:none;}
+}

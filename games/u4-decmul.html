@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>소수 비거리 레이더 · 종목 4</title>
-<link rel="stylesheet" href="../css/style.css?v=5">
+<title>소수 매트 만들기 · 종목 4</title>
+<link rel="stylesheet" href="../css/style.css?v=6">
 </head>
 <body>
 
@@ -18,7 +18,7 @@
   </div>
 
   <div class="overlay-panel" id="loadingPanel">
-    <h2>📡 소수 비거리 레이더</h2>
+    <h2>📐 소수 매트 만들기</h2>
     <p id="loadingText">준비 중…</p>
   </div>
 
@@ -28,7 +28,7 @@
         <div class="rule-char">🦊</div>
         <div>
           <div class="rule-name">재보</div>
-          <h2 class="rule-title">소수 비거리 레이더</h2>
+          <h2 class="rule-title">소수 매트 만들기</h2>
         </div>
       </div>
       <p class="rule-cheer"></p>
@@ -39,8 +39,8 @@
   </div>
 
   <div class="overlay-panel" id="raisePanel" style="display:none">
-    <div class="raise-icon" id="raiseIcon">🙋</div>
-    <h2 id="raiseText">손을 들어 주세요!</h2>
+    <div class="raise-icon" id="raiseIcon">🙌</div>
+    <h2 id="raiseText">두 손을 들어 주세요!</h2>
     <div class="hold-bar"><div class="hold-fill" id="holdFill"></div></div>
   </div>
 
@@ -55,8 +55,8 @@
   <div class="overlay-panel" id="resultPanel" style="display:none">
     <div id="podium"></div>
     <div class="result-stats">
-      <div class="stat-box"><div class="num" id="statCount">0번</div><div class="label">기록</div></div>
-      <div class="stat-box"><div class="num" id="statBest">0번</div><div class="label">최고 기록</div></div>
+      <div class="stat-box"><div class="num" id="statCount">0개</div><div class="label">만든 매트</div></div>
+      <div class="stat-box"><div class="num" id="statBest">0개</div><div class="label">최고 기록</div></div>
       <div class="stat-box"><div class="num" id="statCombo">0</div><div class="label">최고 콤보</div></div>
     </div>
     <video class="preview" id="previewVideo" controls playsinline style="display:none"></video>
@@ -64,7 +64,7 @@
       <button class="ghost-btn" id="savePhotoBtn">📸 사진</button>
       <button class="ghost-btn" id="saveVideoBtn" style="display:none">🎬 3초 영상</button>
       <button class="big-btn" id="retryBtn">🔁 한 번 더</button>
-      <button class="ghost-btn" id="homeBtn2">🎲 보드로</button>
+      <button class="ghost-btn" id="homeBtn2">🏠 종목 선택</button>
     </div>
   </div>
 </div>
@@ -84,88 +84,94 @@ import {
   CUTE, bob, drawSticker, drawStickerRect, drawChunkyText,
   spawnSparkles, updateSparkles, drawSparkles, makeDrifters, drawDrifters,
   drawBunting, drawGloveCursor, drawLevelStars, drawCuteBanner,
-} from "../js/cute.js?v=5";
+} from "../js/cute.js?v=6";
 import {
-  PARTY, CHARACTERS, Board, Party, drawPartyBackdrop, drawCrowd, drawMascot,
+  PARTY, CHARACTERS, Party, HandPair, drawTwoHandHint,
+  drawPartyBackdrop, drawCrowd, drawMascot,
   showRuleCard, renderPodium, irisTransition,
-} from "../js/party.js?v=1";
+} from "../js/party.js?v=2";
 requestWakeLock();
 
 const UNIT = "f4";
-const TITLE = "소수 비거리 레이더";
-const RECORD_SUFFIX = "번 계측";
-const MEDALS = { bronze: 3, silver: 5, gold: 8 };
+const TITLE = "소수 매트 만들기";
+const RECORD_SUFFIX = "개 완성";
+const MEDALS = { bronze: 3, silver: 6, gold: 9 };
 const CHAR = CHARACTERS[UNIT];
 const mode = InputMode.get();
 
 const video = document.getElementById("video");
 const canvas = document.getElementById("gameCanvas");
 let dims = fitCanvasToScreen(canvas);
-let drifters = makeDrifters(12, dims.w, dims.h);
+let drifters = makeDrifters(10, dims.w, dims.h);
 window.addEventListener("resize", () => {
   dims = fitCanvasToScreen(canvas);
-  drifters = makeDrifters(12, dims.w, dims.h);
+  drifters = makeDrifters(10, dims.w, dims.h);
 });
 
 const sound = new SoundKit();
 const bgm = new FileAudioLoop("../assets/sounds/subbgm.mp3", 0.32);
 const isMuted = () => localStorage.getItem("smo_muted") === "1";
 const party = new Party({ unit: UNIT, sound, isMuted });
+const hands = new HandPair();
 
 function goHome() { bgm.stop(); irisTransition(() => { location.href = "../index.html"; }); }
 document.getElementById("homeBtn").addEventListener("click", goHome);
 document.getElementById("homeBtn2").addEventListener("click", goHome);
 
 function randInt(min, max) { return min + Math.floor(Math.random() * (max - min + 1)); }
-const round2 = (v, p) => Math.round(v / p) * p;
+
+// 격자: 가로 3.0 m(30칸) × 세로 2.0 m(20칸), 한 칸 = 0.1 m
+const COLS = 30, ROWS = 20, CELL_M = 0.1;
+const r1 = (v) => Math.round(v * 10) / 10;
+const r2 = (v) => Math.round(v * 100) / 100;
 
 // ---------------------------------------------------------------------------
-// 문제 만들기 — 계산한 비거리를 눈금자에서 직접 찾아 짚는다.
-// 정답 수를 글자로 알려주지 않고 눈금만 그려서, 소수점 자리를 스스로 읽게 한다.
-// 단계마다 눈금자의 척도가 달라지는 것이 이 종목의 핵심 학습 장치다.
+// 문제 만들기 — 목표는 "넓이". 두 변은 학생이 정한다(정답 조합이 여러 개인 게 자연스럽다).
+// 화면에는 가로·세로만 보여주고 넓이는 감춘다. 그래야 학생이 직접 곱해 본다.
 // ---------------------------------------------------------------------------
 function genRound(level) {
-  for (let tries = 0; tries < 400; tries++) {
+  for (let t = 0; t < 400; t++) {
+    let a, b;
     if (level === 1) {
-      // (소수)×(자연수)
-      const a = randInt(2, 25) / 10;          // 0.2 ~ 2.5
-      const b = randInt(2, 5);
-      const v = a * b;
-      if (Math.abs(v - round2(v, 0.1)) > 1e-9 || v < 0.3 || v > 6) continue;
-      return { text: `${a} × ${b}`, value: round2(v, 0.1), maxVal: 6, minor: 0.1, labelEvery: 1, digits: 1,
-        hint: "곱하는 수의 소수점 아래 자리 수만큼 곱에도 소수점을 찍어요" };
+      // (소수)×(자연수) — 한 변이 자연수라 곱셈이 간단하다
+      a = r1(randInt(2, 15) / 10);
+      b = randInt(1, 2);
+    } else if (level === 2) {
+      // (소수 한 자리)×(소수 한 자리) — 곱이 소수 두 자리가 된다
+      a = r1(randInt(3, 20) / 10);
+      b = r1(randInt(3, 15) / 10);
+    } else {
+      a = r1(randInt(8, 28) / 10);
+      b = r1(randInt(6, 18) / 10);
     }
-    if (level === 2) {
-      if (Math.random() < 0.5) {
-        // (자연수)×(소수 두 자리)
-        const b = randInt(2, 8);
-        const a = randInt(15, 145) / 100;     // 0.15 ~ 1.45
-        const v = a * b;
-        if (Math.abs(v - round2(v, 0.1)) > 1e-9 || v < 0.5 || v > 6) continue;
-        return { text: `${b} × ${a}`, value: round2(v, 0.1), maxVal: 6, minor: 0.1, labelEvery: 1, digits: 1,
-          hint: "소수 두 자리 × 자연수 — 곱의 소수점 위치를 잘 살펴요" };
-      }
-      // (소수)×(자연수), 수가 더 커진다
-      const a = randInt(3, 29) / 10;
-      const b = randInt(2, 6);
-      const v = a * b;
-      if (Math.abs(v - round2(v, 0.1)) > 1e-9 || v < 1 || v > 6) continue;
-      return { text: `${a} × ${b}`, value: round2(v, 0.1), maxVal: 6, minor: 0.1, labelEvery: 1, digits: 1,
-        hint: "한 걸음 길이 × 걸음 수 = 전체 거리" };
-    }
-    // ⭐3단계: (소수)×(소수) — 눈금이 0.01 단위로 촘촘해진다
-    const a = randInt(1, 9) / 10;
-    const b = randInt(1, 9) / 10;
-    const v = a * b;
-    if (v < 0.05 || v > 0.8) continue;
-    return { text: `${a} × ${b}`, value: round2(v, 0.01), maxVal: 0.8, minor: 0.01, labelEvery: 0.1, digits: 2,
-      hint: "0.1 × 0.1 = 0.01 — 소수점 아래 자리 수를 더해요" };
+    if (a > COLS * CELL_M || b > ROWS * CELL_M) continue;
+    const area = r2(a * b);
+    if (area < 0.1 || area > 3.0) continue;
+    return {
+      area,
+      sample: { a, b },
+      hint: level === 1 ? "소수 한 자리 × 자연수" : "0.1 × 0.1 = 0.01 — 소수점 아래 자리 수를 더해요",
+    };
   }
-  return { text: "1.4 × 3", value: 4.2, maxVal: 6, minor: 0.1, labelEvery: 1, digits: 1, hint: "" };
+  return { area: 0.56, sample: { a: 0.7, b: 0.8 }, hint: "0.1 × 0.1 = 0.01" };
 }
 
 const handTracker = new HandTracker();
 let pointerInput = null;
+let pressPt = null;
+
+// 드래그를 시작한 "누른 그 지점"을 이벤트 시점에 직접 기록해 둔다.
+// 프레임 사이에 누르고 떼는 빠른 동작에서도 매트의 첫 꼭짓점을 놓치지 않는다.
+function bindPressPoint() {
+  const rec = (cx, cy) => {
+    const r = canvas.getBoundingClientRect();
+    pressPt = { x: cx - r.left, y: cy - r.top };
+  };
+  canvas.addEventListener("mousedown", (e) => rec(e.clientX, e.clientY));
+  canvas.addEventListener("touchstart", (e) => {
+    if (e.touches[0]) rec(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive: true });
+}
 
 async function init() {
   if (!isMuted()) bgm.play(showSoundHint);
@@ -178,25 +184,28 @@ async function init() {
       return;
     }
     document.getElementById("loadingText").textContent = "AI 모델을 불러오는 중…";
-    await handTracker.init(1);
+    await handTracker.init(2);
   } else {
     pointerInput = new PointerInput(canvas);
+    bindPressPoint();
   }
   document.getElementById("loadingPanel").style.display = "none";
 
   await showRuleCard({
     unit: UNIT,
-    title: "소수 비거리 레이더",
+    title: "소수 매트 만들기",
     lines: [
-      "식을 계산해서 나온 <b>비거리</b>를 눈금자에서 찾아요.",
-      "그 눈금에 손을 <b>0.7초 대고 있으면</b> 계측 완료! 스쳐 지나가도 실수로 처리되지 않아요.",
-      "정답 숫자는 알려주지 않아요. <b>눈금을 직접 세어</b> 찾아야 해요.",
-      "⭐⭐⭐단계에서는 눈금이 <b>0.01</b>까지 촘촘해져요.",
+      mode === "motion"
+        ? "<b>양손이 매트의 두 꼭짓점</b>이에요. 손을 벌리면 직사각형 매트가 그려져요."
+        : "화면을 <b>드래그</b>하면 직사각형 매트가 그려져요.",
+      "가로·세로는 알려주지만 <b>넓이는 알려주지 않아요.</b> 직접 곱해서 맞춰야 해요!",
+      "한 칸은 <b>0.1 m</b>, 작은 칸 하나는 <b>0.01 m²</b>예요.",
+      "목표 넓이가 되면 <b>0.6초 그대로</b> 있어요 → 매트 완성!",
     ],
   });
 
-  document.getElementById("raiseIcon").textContent = mode === "motion" ? "🙋" : "👆";
-  document.getElementById("raiseText").textContent = mode === "motion" ? "손을 들어 주세요!" : "화면을 터치(클릭)하면 시작!";
+  document.getElementById("raiseIcon").textContent = mode === "motion" ? "🙌" : "👆";
+  document.getElementById("raiseText").textContent = mode === "motion" ? "두 손을 들어 주세요!" : "화면을 터치(클릭)하면 시작!";
   document.getElementById("raisePanel").style.display = "flex";
   state = "raise";
   requestAnimationFrame(loop);
@@ -207,24 +216,31 @@ const holdFill = document.getElementById("holdFill");
 const startGate = new StartGate(mode, holdFill);
 
 let autoDiff, count, playEndAt;
-let round, roundAt, resolving, hold = 0, pickedTick = null, resultMark = null;
+let round, roundAt, resolving, hold = 0, resultMark = null;
+let rect = null;                     // { ax, ay, bx, by } — 격자 칸 단위(정수)
+let anchor = null, wasDown = false;  // 마우스 드래그용
 let confetti = [], sparks = [];
 const shake = new ScreenShake();
 let recorder, comboShot, fallbackShot, autoRec, recordedBlob = null;
 const recIndicator = document.getElementById("recIndicator");
 let cursors = [];
+let lastFrameAt = 0;
 
-const RULER_Y = () => dims.h * 0.66;
-const RX0 = () => dims.w * 0.08;
-const RX1 = () => dims.w * 0.95;
-const vToX = (v) => RX0() + (v / round.maxVal) * (RX1() - RX0());
-const xToV = (x) => ((x - RX0()) / (RX1() - RX0())) * round.maxVal;
+function grid() {
+  const { w, h } = dims;
+  const availW = w * 0.88, availH = h * 0.58;
+  const cell = Math.min(availW / COLS, availH / ROWS);
+  const gw = cell * COLS, gh = cell * ROWS;
+  return { cell, gw, gh, ox: (w - gw) / 2, oy: h * 0.36 };
+}
+const toCol = (x) => { const g = grid(); return Math.max(0, Math.min(COLS, Math.round((x - g.ox) / g.cell))); };
+const toRow = (y) => { const g = grid(); return Math.max(0, Math.min(ROWS, Math.round((y - g.oy) / g.cell))); };
 
 function newRound() {
   round = genRound(autoDiff.level);
   roundAt = performance.now();
-  resolving = false;
-  hold = 0; pickedTick = null; resultMark = null;
+  resolving = false; hold = 0; resultMark = null;
+  rect = null; anchor = null; wasDown = false;
 }
 
 function startCountdown() {
@@ -254,8 +270,10 @@ function beginPlay() {
   autoDiff = new AutoDifficulty(levelFromUrl(AutoDifficulty.startLevelFromHighScore(prev)));
   count = 0;
   party.reset();
+  hands.reset();
   confetti = []; sparks = [];
   playEndAt = performance.now() + 60000;
+  lastFrameAt = 0;
   newRound();
 
   recorder = new ClipRecorder(canvas, sound, 24);
@@ -273,26 +291,42 @@ function beginPlay() {
   });
 }
 
-function confirmPick(v) {
+function sides() {
+  if (!rect) return null;
+  const a = r1(Math.abs(rect.bx - rect.ax) * CELL_M);
+  const b = r1(Math.abs(rect.by - rect.ay) * CELL_M);
+  return { a, b, area: r2(a * b) };
+}
+
+function confirmMat(s) {
   resolving = true;
-  const ok = Math.abs(v - round.value) < round.minor * 0.5;
-  const x = vToX(v), y = RULER_Y();
-  resultMark = { v, ok, at: performance.now() };
-  if (ok) {
-    count++;
-    party.correct(x, y - fluidPx(dims, 60, { min: 44, max: 84 }), { base: 10, elapsedMs: performance.now() - roundAt });
-    if (party.combo > 0 && party.combo === party.maxCombo) comboShot.capture(canvas);
-    autoDiff.reportCorrect();
-    autoRec.trigger();
-    shake.trigger(7, 160);
-    spawnSparkles(sparks, x, y, 24, ["#fff", PARTY.gold, CUTE.green]);
-    spawnConfetti(confetti, x, y, 30);
-  } else {
-    party.wrong(x, y - fluidPx(dims, 60, { min: 44, max: 84 }), "다시 재 봐요!");
-    autoDiff.reportWrong();
-    shake.trigger(4, 150);
-  }
-  setTimeout(() => { if (state === "playing") newRound(); }, ok ? 900 : 1500);
+  const g = grid();
+  const cx = g.ox + ((rect.ax + rect.bx) / 2) * g.cell;
+  const cy = g.oy + ((rect.ay + rect.by) / 2) * g.cell;
+  resultMark = { ...s, ok: true, at: performance.now() };
+  count++;
+  party.correct(cx, cy, { base: 12, elapsedMs: performance.now() - roundAt });
+  if (party.combo > 0 && party.combo === party.maxCombo) comboShot.capture(canvas);
+  autoDiff.reportCorrect();
+  autoRec.trigger();
+  shake.trigger(6, 160);
+  spawnSparkles(sparks, cx, cy, 26, ["#fff", PARTY.gold, CUTE.green]);
+  spawnConfetti(confetti, cx, cy, 32);
+  setTimeout(() => { if (state === "playing") newRound(); }, 1400);
+}
+
+// 시간이 다 되면 실패 — 지금 만든 매트의 넓이를 알려 줘서 왜 아닌지 보게 한다
+function timeUp() {
+  resolving = true;
+  const s = sides();
+  const g = grid();
+  const cx = rect ? g.ox + ((rect.ax + rect.bx) / 2) * g.cell : dims.w / 2;
+  const cy = rect ? g.oy + ((rect.ay + rect.by) / 2) * g.cell : dims.h * 0.6;
+  // 매트를 아예 안 만들었으면 "0 × 0" 같은 이상한 안내 대신 아무것도 보여주지 않는다
+  resultMark = s && s.a > 0 && s.b > 0 ? { ...s, ok: false, at: performance.now() } : null;
+  party.wrong(cx, cy, "다시 계산해요!");
+  autoDiff.reportWrong();
+  setTimeout(() => { if (state === "playing") newRound(); }, 1600);
 }
 
 function endGame() {
@@ -303,12 +337,10 @@ function endGame() {
   if (!prev || count >= prev.count) {
     HighScore.set(UNIT, { count, bestLevel: autoDiff.level, label: `${medal} ${count}${RECORD_SUFFIX}`, at: Date.now() });
   }
-  const earnedStar = medal !== "🏅";
-  Board.finishGame(UNIT, { coins: party.coins, earnedStar });
   renderPodium({ unit: UNIT, medal, label, coins: party.coins, maxCombo: party.maxCombo, count, suffix: RECORD_SUFFIX, best });
 
-  document.getElementById("statCount").textContent = count + "번";
-  document.getElementById("statBest").textContent = best + "번";
+  document.getElementById("statCount").textContent = count + "개";
+  document.getElementById("statBest").textContent = best + "개";
   document.getElementById("statCombo").textContent = "🔥" + party.maxCombo;
 
   const shot = comboShot.captured ? comboShot : fallbackShot;
@@ -321,10 +353,10 @@ function endGame() {
   }
   document.getElementById("savePhotoBtn").onclick = async () => {
     const blob = await shot.toBlob((c, w, h) => drawPhotoOverlay(c, w, h, { title: TITLE, record: count + RECORD_SUFFIX, medal }));
-    downloadBlob(blob, `수학체육올림픽5_소수레이더_${formatFileTimestamp()}.png`);
+    downloadBlob(blob, `수학체육올림픽5_소수매트_${formatFileTimestamp()}.png`);
   };
   document.getElementById("saveVideoBtn").onclick = () => {
-    if (recordedBlob) downloadBlob(recordedBlob, `수학체육올림픽5_소수레이더_${formatFileTimestamp()}.${recorder.extension}`);
+    if (recordedBlob) downloadBlob(recordedBlob, `수학체육올림픽5_소수매트_${formatFileTimestamp()}.${recorder.extension}`);
   };
   document.getElementById("resultPanel").style.display = "flex";
   if (!isMuted()) sound.success();
@@ -368,128 +400,171 @@ function loop(tsMs) {
   if (mode === "motion") {
     result = handTracker.detect(video, tsMs);
     if (state === "raise") {
-      let raised = false;
-      if (result && result.landmarks) for (const lm of result.landmarks) if (isHandRaised(lm)) raised = true;
-      if (startGate.update(tsMs, raised)) goReady();
+      let raised = 0;
+      if (result && result.landmarks) for (const lm of result.landmarks) if (isHandRaised(lm)) raised++;
+      if (startGate.update(tsMs, raised >= 2)) goReady();
     }
   }
   cursors = getCursors(mode, result, w, h, video, pointerInput);
+  hands.update(cursors);
 
   if (state === "playing") stepGame();
 
-  for (const c of cursors) drawGloveCursor(ctx, c.x, c.y, fluidPx(dims, 44, { min: 32, max: 62 }), { active: hold > 0 });
+  for (const c of cursors) drawGloveCursor(ctx, c.x, c.y, fluidPx(dims, 42, { min: 30, max: 58 }), { active: hold > 0 });
   ctx.restore();
+}
+
+// ── 입력: 두 손이 직사각형의 대각 꼭짓점. 격자 교차점에 딱 붙는다(스냅) ──
+function updateRect() {
+  if (mode === "motion") {
+    if (hands.both) {
+      rect = { ax: toCol(hands.left.x), ay: toRow(hands.left.y), bx: toCol(hands.right.x), by: toRow(hands.right.y) };
+    }
+    return;
+  }
+  const pts = pointerInput ? pointerInput.points : [];
+  if (pts.length >= 2) {
+    const s = [...pts].sort((a, b) => a.x - b.x);
+    rect = { ax: toCol(s[0].x), ay: toRow(s[0].y), bx: toCol(s[s.length - 1].x), by: toRow(s[s.length - 1].y) };
+    anchor = null;
+    return;
+  }
+  // 누르는 순간을 consumeJustDown으로 걸어 둬야, 누르고 떼는 게 한 프레임에 다 일어나도 놓치지 않는다
+  const justDown = pointerInput ? pointerInput.consumeJustDown() : false;
+  const down = pointerInput && pointerInput.down && pts.length === 1;
+  if (justDown && (pressPt || pts.length)) {
+    const p = pressPt || pts[0];
+    anchor = { c: toCol(p.x), r: toRow(p.y) };
+    wasDown = true;
+  }
+  if (wasDown && anchor && pts.length) {
+    rect = { ax: anchor.c, ay: anchor.r, bx: toCol(pts[0].x), by: toRow(pts[0].y) };
+  }
+  if (!down) wasDown = false;
 }
 
 function stepGame() {
   const { ctx, w, h } = dims;
-  const dt = 1 / 60;
+  // 홀드·게이지는 프레임 수가 아니라 실제 흐른 시간으로 쌓아야 한다.
+  // 느린 기기에서 프레임이 떨어지면 제한 시간만 실시간으로 흐르고 게이지는 안 차서 불리해진다.
+  const dt = lastFrameAt ? Math.min(0.06, (performance.now() - lastFrameAt) / 1000) : 1 / 60;
+  lastFrameAt = performance.now();
   const remain = Math.max(0, playEndAt - performance.now());
   if (remain <= 0) { endGame(); return; }
   const now = performance.now();
-  const armed = now - roundAt > 800;
-  const ry = RULER_Y();
+  const armed = now - roundAt > 700;
+  const g = grid();
 
-  // ── 입력: 커서 x를 가장 가까운 눈금에 붙이고, 그 자리에 0.7초 머물면 확정 ──
   if (!resolving) {
-    const c = cursors[0];
-    if (c && Math.abs(c.y - ry) < h * 0.3) {
-      const raw = Math.max(0, Math.min(round.maxVal, xToV(c.x)));
-      const tick = round2(raw, round.minor);
-      if (pickedTick === null || Math.abs(tick - pickedTick) > round.minor * 0.5) {
-        pickedTick = tick; hold = 0;
-      } else if (armed) {
-        hold += dt * 1000;
-        if (hold > 700) confirmPick(pickedTick);
-      }
-    } else {
-      hold = Math.max(0, hold - dt * 900);
-    }
+    updateRect();
+    const s = sides();
+    const match = s && s.a > 0 && s.b > 0 && Math.abs(s.area - round.area) < 0.005;
+    hold = match && armed ? hold + dt * 1000 : Math.max(0, hold - dt * 900);
+    if (hold > 600) confirmMat(s);
+    else if (now - roundAt > 14000) timeUp();
   }
 
-  // ── 그리기 ──────────────────────────────────────────────
+  // ── 격자 ────────────────────────────────────────────────
   ctx.save();
-  ctx.fillStyle = "rgba(255,236,199,0.55)";
-  ctx.fillRect(0, ry, w, h - ry);
-  ctx.restore();
-
-  // 눈금자 — 단계마다 척도가 달라진다
-  ctx.save();
+  ctx.fillStyle = "rgba(255,253,243,0.82)";
+  ctx.fillRect(g.ox, g.oy, g.gw, g.gh);
+  // 0.1 m 잔격자
+  ctx.strokeStyle = "rgba(34,48,92,0.22)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let c = 0; c <= COLS; c++) { ctx.moveTo(g.ox + c * g.cell, g.oy); ctx.lineTo(g.ox + c * g.cell, g.oy + g.gh); }
+  for (let r = 0; r <= ROWS; r++) { ctx.moveTo(g.ox, g.oy + r * g.cell); ctx.lineTo(g.ox + g.gw, g.oy + r * g.cell); }
+  ctx.stroke();
+  // 0.5 m 굵은 격자 + 눈금 숫자
+  ctx.strokeStyle = "rgba(34,48,92,0.55)";
+  ctx.lineWidth = fluidPx(dims, 2.2, { min: 1.6, max: 3.2 });
+  ctx.beginPath();
+  for (let c = 0; c <= COLS; c += 5) { ctx.moveTo(g.ox + c * g.cell, g.oy); ctx.lineTo(g.ox + c * g.cell, g.oy + g.gh); }
+  for (let r = 0; r <= ROWS; r += 5) { ctx.moveTo(g.ox, g.oy + r * g.cell); ctx.lineTo(g.ox + g.gw, g.oy + r * g.cell); }
+  ctx.stroke();
+  ctx.fillStyle = CUTE.ink;
+  ctx.font = `900 ${fluidPx(dims, 12, { min: 9, max: 16 })}px sans-serif`;
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  for (let c = 0; c <= COLS; c += 5) ctx.fillText((c * CELL_M).toFixed(1), g.ox + c * g.cell, g.oy + g.gh + 3);
+  ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  for (let r = 0; r <= ROWS; r += 5) ctx.fillText(((ROWS - r) * CELL_M).toFixed(1), g.ox - 4, g.oy + r * g.cell);
   ctx.strokeStyle = CUTE.ink;
-  ctx.lineWidth = fluidPx(dims, 4, { min: 3, max: 6 });
-  ctx.beginPath(); ctx.moveTo(RX0(), ry); ctx.lineTo(RX1(), ry); ctx.stroke();
-  const steps = Math.round(round.maxVal / round.minor);
-  const labelSize = fluidPx(dims, 15, { min: 10, max: 20 });
-  const midEvery = round.labelEvery / round.minor / 2;
-  for (let i = 0; i <= steps; i++) {
-    const v = i * round.minor;
-    const x = vToX(v);
-    const isLabel = Math.abs(v / round.labelEvery - Math.round(v / round.labelEvery)) < 1e-9;
-    const isMid = !isLabel && Math.abs(i % midEvery) < 1e-9;
-    const len = isLabel ? fluidPx(dims, 18, { min: 13, max: 25 })
-      : isMid ? fluidPx(dims, 11, { min: 8, max: 15 }) : fluidPx(dims, 6, { min: 4, max: 9 });
-    ctx.beginPath();
-    ctx.moveTo(x, ry); ctx.lineTo(x, ry + len);
-    ctx.lineWidth = isLabel ? fluidPx(dims, 3.5, { min: 2.5, max: 5 }) : fluidPx(dims, 1.8, { min: 1.2, max: 2.6 });
-    ctx.stroke();
-    if (isLabel) {
-      ctx.fillStyle = CUTE.ink;
-      ctx.font = `900 ${labelSize}px sans-serif`;
-      ctx.textAlign = "center"; ctx.textBaseline = "top";
-      ctx.fillText(v.toFixed(round.digits === 2 ? 1 : 0), x, ry + fluidPx(dims, 21, { min: 15, max: 29 }));
-    }
-  }
+  ctx.lineWidth = fluidPx(dims, 3.5, { min: 2.5, max: 5 });
+  ctx.strokeRect(g.ox, g.oy, g.gw, g.gh);
   ctx.restore();
 
-  // 여우 심판 — 지금 고른 눈금 위를 따라 걷는다.
-  // 눈금 값 표시와 홀드 게이지가 눈금자 바로 위를 쓰므로, 여우는 그보다 더 위에 세운다.
-  const fr = fluidPx(dims, 24, { min: 18, max: 33 });
-  const foxX = pickedTick !== null ? vToX(pickedTick) : vToX(round.maxVal / 2);
-  drawMascot(ctx, foxX, ry - fluidPx(dims, 150, { min: 105, max: 200 }), fr, CHAR, party.currentMood(remain));
-
-  // 고른 눈금 표시 + 홀드 게이지
-  if (pickedTick !== null && !resolving) {
-    const x = vToX(pickedTick);
+  // ── 내가 만든 매트 ──────────────────────────────────────
+  const s = sides();
+  if (rect && s) {
+    const x = g.ox + Math.min(rect.ax, rect.bx) * g.cell;
+    const y = g.oy + Math.min(rect.ay, rect.by) * g.cell;
+    const rw = Math.abs(rect.bx - rect.ax) * g.cell;
+    const rh = Math.abs(rect.by - rect.ay) * g.cell;
+    const ok = resultMark ? resultMark.ok : Math.abs(s.area - round.area) < 0.005;
     ctx.save();
-    ctx.strokeStyle = PARTY.gold; ctx.lineWidth = fluidPx(dims, 4, { min: 3, max: 6 });
-    ctx.beginPath(); ctx.moveTo(x, ry - fluidPx(dims, 40, { min: 28, max: 56 })); ctx.lineTo(x, ry + fluidPx(dims, 20, { min: 14, max: 27 }));
-    ctx.stroke();
+    ctx.fillStyle = ok ? "rgba(81,207,102,0.42)" : "rgba(255,207,63,0.38)";
+    ctx.fillRect(x, y, rw, rh);
+    ctx.strokeStyle = ok ? CUTE.greenDark : CUTE.orangeDark;
+    ctx.lineWidth = fluidPx(dims, 4.5, { min: 3, max: 6.5 });
+    ctx.strokeRect(x, y, rw, rh);
     ctx.restore();
-    drawChunkyText(ctx, pickedTick.toFixed(round.digits), x, ry - fluidPx(dims, 56, { min: 40, max: 78 }),
-      fluidPx(dims, 24, { min: 17, max: 32 }), "#fff", { outline: CUTE.ink, outlineWidth: fluidPx(dims, 6, { min: 4, max: 9 }) });
-    if (hold > 0) {
-      const rr = fluidPx(dims, 26, { min: 19, max: 36 });
+
+    // 두 변의 길이 — 넓이는 알려주지 않는다. 곱은 학생이 한다.
+    const fs = fluidPx(dims, 19, { min: 14, max: 26 });
+    drawChunkyText(ctx, `${s.a.toFixed(1)} m`, x + rw / 2, y - fs * 0.9, fs, "#fff",
+      { outline: CUTE.ink, outlineWidth: Math.max(4, fs * 0.24) });
+    ctx.save();
+    ctx.translate(x - fs * 0.9, y + rh / 2);
+    ctx.rotate(-Math.PI / 2);
+    drawChunkyText(ctx, `${s.b.toFixed(1)} m`, 0, 0, fs, "#fff",
+      { outline: CUTE.ink, outlineWidth: Math.max(4, fs * 0.24) });
+    ctx.restore();
+
+    // 맞으면 0.01 칸이 반짝이며 채워진다 — 왜 그 넓이인지 눈으로 세어 볼 수 있다
+    if (resultMark && resultMark.ok) {
+      const t = Math.min(1, (now - resultMark.at) / 700);
+      ctx.save();
+      ctx.globalAlpha = t * 0.7;
+      ctx.fillStyle = PARTY.gold;
+      const nc = Math.abs(rect.bx - rect.ax), nr = Math.abs(rect.by - rect.ay);
+      const total = nc * nr;
+      const shown = Math.floor(total * t);
+      for (let i = 0; i < shown; i++) {
+        const c = i % nc, r = Math.floor(i / nc);
+        ctx.fillRect(x + c * g.cell + 1, y + r * g.cell + 1, g.cell - 2, g.cell - 2);
+      }
+      ctx.restore();
+      drawChunkyText(ctx, `${s.a} × ${s.b} = ${s.area} m²`, x + rw / 2, y + rh + fs * 1.2, fs * 1.1, PARTY.gold,
+        { outline: CUTE.ink, outlineWidth: Math.max(4, fs * 0.26) });
+    }
+    if (resultMark && !resultMark.ok) {
+      drawChunkyText(ctx, `${s.a} × ${s.b} = ${s.area} m² 였어요`, x + rw / 2, y + rh + fs * 1.2, fs, "#fff",
+        { outline: CUTE.red, outlineWidth: Math.max(4, fs * 0.24) });
+    }
+
+    // 목표에 맞으면 유지 게이지가 찬다
+    if (hold > 0 && !resolving) {
       ctx.save();
       ctx.beginPath();
-      ctx.arc(x, ry - fluidPx(dims, 56, { min: 40, max: 78 }), rr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, hold / 700));
-      ctx.strokeStyle = PARTY.gold; ctx.lineWidth = fluidPx(dims, 6, { min: 4, max: 9 });
+      ctx.arc(x + rw / 2, y + rh / 2, Math.min(rw, rh) * 0.32 + fluidPx(dims, 14, { min: 10, max: 20 }),
+        -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, hold / 600));
+      ctx.strokeStyle = PARTY.gold; ctx.lineWidth = fluidPx(dims, 7, { min: 5, max: 10 });
       ctx.lineCap = "round"; ctx.stroke();
       ctx.restore();
     }
   }
 
-  // 결과 표시
-  if (resultMark) {
-    const x = vToX(resultMark.v);
-    drawSticker(ctx, x, ry, fluidPx(dims, 13, { min: 9, max: 18 }), resultMark.ok ? CUTE.green : CUTE.red, { lineWidth: 3 });
-    if (!resultMark.ok) {
-      const ax = vToX(round.value);
-      ctx.save();
-      ctx.strokeStyle = CUTE.green; ctx.lineWidth = fluidPx(dims, 4, { min: 3, max: 6 });
-      ctx.setLineDash([8, 6]);
-      ctx.beginPath(); ctx.moveTo(ax, ry - fluidPx(dims, 44, { min: 32, max: 62 })); ctx.lineTo(ax, ry); ctx.stroke();
-      ctx.restore();
-      drawChunkyText(ctx, `정답 ${round.value.toFixed(round.digits)}`, ax, ry - fluidPx(dims, 56, { min: 40, max: 78 }),
-        fluidPx(dims, 19, { min: 14, max: 25 }), "#fff", { outline: CUTE.green, outlineWidth: fluidPx(dims, 5, { min: 3.5, max: 7 }) });
-    }
-  }
+  // 재보 — 격자 오른쪽 위에서 지켜본다 (왼쪽은 세로 눈금 숫자 자리)
+  const fr = fluidPx(dims, 22, { min: 17, max: 30 });
+  drawMascot(ctx, g.ox + g.gw + fr * 1.2, g.oy + fr * 0.6, fr, CHAR, party.currentMood(remain));
 
-  const hudBottom = party.drawHud(ctx, dims, { remainMs: remain, count, suffix: "번" });
+  const hudBottom = party.drawHud(ctx, dims, { remainMs: remain, count, suffix: "개" });
   drawCuteBanner(ctx, dims, [
-    { text: `${round.text} = ? m`, size: 29, chunky: true, color: PARTY.gold },
+    { text: `넓이가 ${round.area} m²인 매트를 만들어요!`, size: 26, chunky: true, color: PARTY.gold },
     { text: round.hint, size: 14, color: CUTE.ink },
-    { text: `눈금 한 칸 = ${round.minor.toFixed(round.digits)}`, size: 13, color: CUTE.orangeDark },
   ], fluidPx, { top: hudBottom });
+
+  if (mode === "motion" && !hands.both) drawTwoHandHint(ctx, dims, fluidPx);
 
   party.update(dt);
   confetti = updateConfetti(confetti, dt); drawConfetti(ctx, confetti);
@@ -497,7 +572,7 @@ function stepGame() {
   party.drawFx(ctx, dims);
   party.drawFeverFrame(ctx, dims);
 
-  drawVignette(ctx, w, h, 0.16);
+  drawVignette(ctx, w, h, 0.14);
   drawLevelStars(ctx, dims, autoDiff.level, fluidPx);
 }
 

@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>분수 캐논 투척 · 종목 2</title>
-<link rel="stylesheet" href="../css/style.css?v=5">
+<title>백스윙 투척 · 종목 2</title>
+<link rel="stylesheet" href="../css/style.css?v=6">
 </head>
 <body>
 
@@ -18,7 +18,7 @@
   </div>
 
   <div class="overlay-panel" id="loadingPanel">
-    <h2>🥎 분수 캐논 투척</h2>
+    <h2>🥎 백스윙 투척</h2>
     <p id="loadingText">준비 중…</p>
   </div>
 
@@ -28,7 +28,7 @@
         <div class="rule-char">🐿️</div>
         <div>
           <div class="rule-name">도토리</div>
-          <h2 class="rule-title">분수 캐논 투척</h2>
+          <h2 class="rule-title">백스윙 투척</h2>
         </div>
       </div>
       <p class="rule-cheer"></p>
@@ -55,7 +55,7 @@
   <div class="overlay-panel" id="resultPanel" style="display:none">
     <div id="podium"></div>
     <div class="result-stats">
-      <div class="stat-box"><div class="num" id="statCount">0번</div><div class="label">기록</div></div>
+      <div class="stat-box"><div class="num" id="statCount">0번</div><div class="label">명중</div></div>
       <div class="stat-box"><div class="num" id="statBest">0번</div><div class="label">최고 기록</div></div>
       <div class="stat-box"><div class="num" id="statCombo">0</div><div class="label">최고 콤보</div></div>
     </div>
@@ -64,7 +64,7 @@
       <button class="ghost-btn" id="savePhotoBtn">📸 사진</button>
       <button class="ghost-btn" id="saveVideoBtn" style="display:none">🎬 3초 영상</button>
       <button class="big-btn" id="retryBtn">🔁 한 번 더</button>
-      <button class="ghost-btn" id="homeBtn2">🎲 보드로</button>
+      <button class="ghost-btn" id="homeBtn2">🏠 종목 선택</button>
     </div>
   </div>
 </div>
@@ -76,7 +76,7 @@ import {
   drawMirroredVideo, fitCanvasToScreen, isHandRaised, getCursors,
   AutoDifficulty, levelFromUrl, medalFor,
   scheduleAutoRecording, ComboShot, drawPhotoOverlay,
-  ScreenShake, InputMode, PointerInput, StartGate,
+  ScreenShake, InputMode, PointerInput, StartGate, SmoothedPoint,
   startCamera, formatFileTimestamp, fluidPx, showSoundHint,
   drawVignette, spawnConfetti, updateConfetti, drawConfetti,
 } from "../js/engine.js?v=2";
@@ -84,27 +84,27 @@ import {
   CUTE, bob, drawSticker, drawStickerRect, drawChunkyText,
   spawnSparkles, updateSparkles, drawSparkles, makeDrifters, drawDrifters,
   drawBunting, drawGloveCursor, drawLevelStars, drawCuteBanner,
-} from "../js/cute.js?v=5";
+} from "../js/cute.js?v=6";
 import {
-  PARTY, CHARACTERS, Board, Party, drawPartyBackdrop, drawCrowd, drawMascot,
+  PARTY, CHARACTERS, Party, drawPartyBackdrop, drawCrowd, drawMascot,
   showRuleCard, renderPodium, irisTransition,
-} from "../js/party.js?v=1";
+} from "../js/party.js?v=2";
 requestWakeLock();
 
 const UNIT = "f2";
-const TITLE = "분수 캐논 투척";
+const TITLE = "백스윙 투척";
 const RECORD_SUFFIX = "번 명중";
-const MEDALS = { bronze: 3, silver: 5, gold: 8 };
+const MEDALS = { bronze: 3, silver: 6, gold: 9 };
 const CHAR = CHARACTERS[UNIT];
 const mode = InputMode.get();
 
 const video = document.getElementById("video");
 const canvas = document.getElementById("gameCanvas");
 let dims = fitCanvasToScreen(canvas);
-let drifters = makeDrifters(12, dims.w, dims.h);
+let drifters = makeDrifters(10, dims.w, dims.h);
 window.addEventListener("resize", () => {
   dims = fitCanvasToScreen(canvas);
-  drifters = makeDrifters(12, dims.w, dims.h);
+  drifters = makeDrifters(10, dims.w, dims.h);
 });
 
 const sound = new SoundKit();
@@ -120,8 +120,7 @@ function randInt(min, max) { return min + Math.floor(Math.random() * (max - min 
 function gcd(a, b) { return b === 0 ? a : gcd(b, a % b); }
 
 // ---------------------------------------------------------------------------
-// 문제 만들기 — 던진 공이 날아갈 거리(m)가 곧 분수식의 값이다.
-// 눈금자는 0~12 m, 0.5 m 간격이므로 답이 항상 0.5의 배수가 되도록 만든다.
+// 문제 만들기 — 식의 값이 곧 던져야 할 거리(m). 눈금이 0.5 m이므로 답도 0.5의 배수로.
 // ---------------------------------------------------------------------------
 const MAXM = 12;
 function fracText(n, d) { return `${n}/${d}`; }
@@ -141,7 +140,6 @@ function genRound(level) {
   for (let tries = 0; tries < 300; tries++) {
     let text, value;
     if (level === 1) {
-      // (진분수) × (자연수) — 딱 떨어지도록 자연수를 분모의 배수로 잡는다
       const { n, d } = properFrac(6);
       const k = randInt(2, Math.max(2, Math.floor(MAXM / n)));
       const c = d * k;
@@ -151,24 +149,15 @@ function genRound(level) {
       const { n, d } = properFrac(4);
       const w = randInt(1, 2);
       const c = randInt(2, 4);
-      if (Math.random() < 0.5) {
-        // (자연수) × (대분수)
-        value = c * (w + n / d);
-        text = `${c} × ${mixedText(w, n, d)}`;
-      } else {
-        // (대분수) × (자연수)
-        value = (w + n / d) * c;
-        text = `${mixedText(w, n, d)} × ${c}`;
-      }
+      if (Math.random() < 0.5) { value = c * (w + n / d); text = `${c} × ${mixedText(w, n, d)}`; }
+      else { value = (w + n / d) * c; text = `${mixedText(w, n, d)} × ${c}`; }
     } else {
       if (Math.random() < 0.5) {
-        // (대분수) × (대분수)
         const f1 = properFrac(4), w1 = randInt(1, 2);
         const f2 = properFrac(4), w2 = randInt(1, 2);
         value = (w1 + f1.n / f1.d) * (w2 + f2.n / f2.d);
         text = `${mixedText(w1, f1.n, f1.d)} × ${mixedText(w2, f2.n, f2.d)}`;
       } else {
-        // (진분수) × (진분수) × (자연수) — 약분해서 계산해야 답이 나온다
         const f1 = properFrac(5), f2 = properFrac(5);
         const base = f1.d * f2.d;
         const c = base * randInt(1, Math.max(1, Math.floor(MAXM / base)));
@@ -176,7 +165,6 @@ function genRound(level) {
         text = `${fracText(f1.n, f1.d)} × ${fracText(f2.n, f2.d)} × ${c}`;
       }
     }
-    // 눈금(0.5 m)에 딱 맞고 사거리 안에 드는 문제만 채택한다
     const snapped = Math.round(value * 2) / 2;
     if (Math.abs(value - snapped) > 1e-9) continue;
     if (snapped < 1 || snapped > MAXM) continue;
@@ -207,13 +195,15 @@ async function init() {
 
   await showRuleCard({
     unit: UNIT,
-    title: "분수 캐논 투척",
+    title: "백스윙 투척",
     lines: [
-      "식을 계산해서 <b>몇 m 날아가야 하는지</b> 알아내요.",
-      "아래 <b>힘 게이지</b>가 좌우로 움직여요. 그 눈금에서 던지면 그만큼 날아가요!",
+      "식을 계산해서 <b>몇 m 던져야 하는지</b> 알아내요.",
       mode === "motion"
-        ? "손을 <b>위로 들었다가 아래로 쭉 내리면</b> 발사돼요."
-        : "화면을 <b>콕 누르면</b> 발사돼요.",
+        ? "손을 <b>뒤(왼쪽)로 당길수록</b> 멀리 날아가요. 당긴 만큼 착지점이 눈금에 표시돼요."
+        : "화면을 누른 채 <b>왼쪽으로 당겼다가 놓으면</b> 날아가요.",
+      mode === "motion"
+        ? "계산한 거리에 맞춰 당긴 뒤, <b>팔을 앞으로 확 휘두르면</b> 발사!"
+        : "계산한 거리에 맞춰 당긴 뒤 <b>손을 떼면</b> 발사!",
     ],
   });
 
@@ -229,26 +219,36 @@ const holdFill = document.getElementById("holdFill");
 const startGate = new StartGate(mode, holdFill);
 
 let autoDiff, count, playEndAt;
-let round, phase, roundAt, gaugeVal, gaugeDir, ball = null, resultMark = null;
-let handWasUp = false;
+let round, phase, roundAt, ball = null, resultMark = null;
+let pull = 0;                          // 지금 당긴 거리(m)
+let trail = [];                        // 최근 손 위치 — 앞으로 휘두르는 순간을 잡는다
+let wasDown = false;
+const smooth = new SmoothedPoint(4);
 let confetti = [], sparks = [];
 const shake = new ScreenShake();
 let recorder, comboShot, fallbackShot, autoRec, recordedBlob = null;
 const recIndicator = document.getElementById("recIndicator");
 let cursors = [];
+let lastFrameAt = 0;
 
-const RULER_Y = () => dims.h * 0.72;
-const RX0 = () => dims.w * 0.14;
+const RULER_Y = () => dims.h * 0.74;
+const RX0 = () => dims.w * 0.13;
 const RX1 = () => dims.w * 0.95;
 const mToX = (m) => RX0() + (m / MAXM) * (RX1() - RX0());
+// 당김 구간: 오른쪽(기준선)에서 왼쪽 끝까지 당기면 최대 사거리
+const PULL_ZERO = () => dims.w * 0.62;
+const PULL_FULL = () => dims.w * 0.08;
+const xToPull = (x) => {
+  const t = (PULL_ZERO() - x) / (PULL_ZERO() - PULL_FULL());
+  return Math.max(0, Math.min(1, t)) * MAXM;
+};
 
 function newRound() {
   round = genRound(autoDiff.level);
   phase = "aim";
   roundAt = performance.now();
   ball = null; resultMark = null;
-  gaugeVal = 0; gaugeDir = 1;
-  handWasUp = false;
+  pull = 0; trail = []; smooth.reset(); wasDown = false;
 }
 
 function startCountdown() {
@@ -280,6 +280,7 @@ function beginPlay() {
   party.reset();
   confetti = []; sparks = [];
   playEndAt = performance.now() + 60000;
+  lastFrameAt = 0;
   newRound();
 
   recorder = new ClipRecorder(canvas, sound, 24);
@@ -297,11 +298,12 @@ function beginPlay() {
   });
 }
 
-function fire() {
+function fire(power) {
   if (phase !== "aim") return;
+  const landed = Math.round(power * 2) / 2;
+  if (landed < 0.5) return;                 // 살짝 흔든 것까지 발사로 치면 억울하다
   phase = "fly";
-  const landed = Math.round(gaugeVal * 2) / 2;   // 눈금(0.5 m)에 맞춰 떨어진다
-  ball = { landed, start: performance.now(), dur: 900 };
+  ball = { landed, start: performance.now(), dur: 820 };
   if (!isMuted()) sound.shot();
 }
 
@@ -310,9 +312,10 @@ function resolveShot() {
   phase = "done";
   resultMark = { landed: ball.landed, ok, at: performance.now() };
   const x = mToX(ball.landed), y = RULER_Y();
+  const py = y - fluidPx(dims, 60, { min: 44, max: 84 });
   if (ok) {
     count++;
-    party.correct(x, y - fluidPx(dims, 60, { min: 44, max: 84 }), { base: 10, elapsedMs: performance.now() - roundAt });
+    party.correct(x, py, { base: 12, elapsedMs: performance.now() - roundAt });
     if (party.combo > 0 && party.combo === party.maxCombo) comboShot.capture(canvas);
     autoDiff.reportCorrect();
     autoRec.trigger();
@@ -320,11 +323,11 @@ function resolveShot() {
     spawnSparkles(sparks, x, y, 26, ["#fff", PARTY.gold, CUTE.green]);
     spawnConfetti(confetti, x, y, 34);
   } else {
-    party.wrong(x, y - fluidPx(dims, 60, { min: 44, max: 84 }), "아깝다!");
+    party.wrong(x, py, "아깝다!");
     autoDiff.reportWrong();
     shake.trigger(4, 150);
   }
-  setTimeout(() => { if (state === "playing") newRound(); }, ok ? 900 : 1400);
+  setTimeout(() => { if (state === "playing") newRound(); }, ok ? 950 : 1500);
 }
 
 function endGame() {
@@ -335,8 +338,6 @@ function endGame() {
   if (!prev || count >= prev.count) {
     HighScore.set(UNIT, { count, bestLevel: autoDiff.level, label: `${medal} ${count}${RECORD_SUFFIX}`, at: Date.now() });
   }
-  const earnedStar = medal !== "🏅";
-  Board.finishGame(UNIT, { coins: party.coins, earnedStar });
   renderPodium({ unit: UNIT, medal, label, coins: party.coins, maxCombo: party.maxCombo, count, suffix: RECORD_SUFFIX, best });
 
   document.getElementById("statCount").textContent = count + "번";
@@ -353,10 +354,10 @@ function endGame() {
   }
   document.getElementById("savePhotoBtn").onclick = async () => {
     const blob = await shot.toBlob((c, w, h) => drawPhotoOverlay(c, w, h, { title: TITLE, record: count + RECORD_SUFFIX, medal }));
-    downloadBlob(blob, `수학체육올림픽5_분수캐논_${formatFileTimestamp()}.png`);
+    downloadBlob(blob, `수학체육올림픽5_백스윙투척_${formatFileTimestamp()}.png`);
   };
   document.getElementById("saveVideoBtn").onclick = () => {
-    if (recordedBlob) downloadBlob(recordedBlob, `수학체육올림픽5_분수캐논_${formatFileTimestamp()}.${recorder.extension}`);
+    if (recordedBlob) downloadBlob(recordedBlob, `수학체육올림픽5_백스윙투척_${formatFileTimestamp()}.${recorder.extension}`);
   };
   document.getElementById("resultPanel").style.display = "flex";
   if (!isMuted()) sound.success();
@@ -409,51 +410,62 @@ function loop(tsMs) {
 
   if (state === "playing") stepGame();
 
-  for (const c of cursors) drawGloveCursor(ctx, c.x, c.y, fluidPx(dims, 44, { min: 32, max: 62 }), { active: phase === "aim" });
+  for (const c of cursors) drawGloveCursor(ctx, c.x, c.y, fluidPx(dims, 44, { min: 32, max: 62 }), { active: pull > 0.4 });
   ctx.restore();
+}
+
+// ── 입력: 뒤로 당겼다가 앞으로 휘두르면 발사 ────────────────────────────────
+function updatePull(now) {
+  const armed = now - roundAt > 700;
+  if (mode === "motion") {
+    if (cursors.length === 0) return;
+    const p = smooth.push(cursors[0].x, cursors[0].y);
+    trail.push({ t: now, x: p.x, pull: xToPull(p.x) });
+    while (trail.length && now - trail[0].t > 260) trail.shift();
+    pull = xToPull(p.x);
+
+    // 260ms 안에 화면 폭의 12% 이상 오른쪽으로 움직였으면 "던졌다"고 본다
+    if (armed && trail.length >= 3) {
+      const oldest = trail[0];
+      if (p.x - oldest.x > dims.w * 0.12) {
+        fire(oldest.pull);                  // 세기는 "당겼던 그 순간"의 값
+        trail = []; smooth.reset(); pull = 0;
+      }
+    }
+    return;
+  }
+
+  // 터치/마우스: 누른 채 당겼다가 떼면 발사 (새총)
+  // 누르고 떼는 게 한 프레임 안에 다 일어나도 놓치지 않도록 consumeJustDown으로 눌림을 걸어 둔다
+  const pts = pointerInput ? pointerInput.points : [];
+  const justDown = pointerInput ? pointerInput.consumeJustDown() : false;
+  const down = pointerInput && pointerInput.down && pts.length > 0;
+  if (justDown) wasDown = true;
+  if (pts.length > 0 && (down || justDown)) pull = xToPull(pts[0].x);
+  if (wasDown && !down) { wasDown = false; if (armed) fire(pull); pull = 0; }
 }
 
 function stepGame() {
   const { ctx, w, h } = dims;
-  const dt = 1 / 60;
+  // 홀드·게이지는 프레임 수가 아니라 실제 흐른 시간으로 쌓아야 한다.
+  // 느린 기기에서 프레임이 떨어지면 제한 시간만 실시간으로 흐르고 게이지는 안 차서 불리해진다.
+  const dt = lastFrameAt ? Math.min(0.06, (performance.now() - lastFrameAt) / 1000) : 1 / 60;
+  lastFrameAt = performance.now();
   const remain = Math.max(0, playEndAt - performance.now());
   if (remain <= 0) { endGame(); return; }
   const now = performance.now();
-  const armed = now - roundAt > 800;
 
-  // ── 힘 게이지 ────────────────────────────────────────────
-  if (phase === "aim") {
-    // 레벨이 오를수록 조금 빨라진다
-    const speed = MAXM / (2.4 - autoDiff.level * 0.25);
-    gaugeVal += gaugeDir * speed * dt;
-    if (gaugeVal >= MAXM) { gaugeVal = MAXM; gaugeDir = -1; }
-    if (gaugeVal <= 0) { gaugeVal = 0; gaugeDir = 1; }
-
-    // 모션: 손을 위로 들었다가 아래로 내리는 "던지는 동작"에서 발사된다
-    if (mode === "motion") {
-      const up = cursors.some((c) => c.y < h * 0.45);
-      const down = cursors.some((c) => c.y > h * 0.60);
-      if (up) handWasUp = true;
-      if (handWasUp && down && armed) { handWasUp = false; fire(); }
-    } else if (pointerInput && pointerInput.consumeJustDown() && armed) {
-      fire();
-    }
-  }
-
-  if (phase === "fly") {
-    const t = Math.min(1, (now - ball.start) / ball.dur);
-    if (t >= 1) resolveShot();
-  }
+  if (phase === "aim") updatePull(now);
+  if (phase === "fly" && now - ball.start >= ball.dur) resolveShot();
 
   // ── 그리기 ──────────────────────────────────────────────
   const ry = RULER_Y();
-  // 잔디 필드
   ctx.save();
-  ctx.fillStyle = "rgba(140,233,154,0.5)";
+  ctx.fillStyle = "rgba(140,233,154,0.45)";
   ctx.fillRect(0, ry, w, h - ry);
   ctx.restore();
 
-  // 거리 눈금자 — 0.5 m마다 작은 눈금, 1 m마다 숫자
+  // 거리 눈금자
   ctx.save();
   ctx.strokeStyle = CUTE.ink; ctx.lineWidth = fluidPx(dims, 4, { min: 3, max: 6 });
   ctx.beginPath(); ctx.moveTo(RX0(), ry); ctx.lineTo(RX1(), ry); ctx.stroke();
@@ -463,56 +475,69 @@ function stepGame() {
     const big = Number.isInteger(m);
     ctx.beginPath();
     ctx.moveTo(x, ry);
-    ctx.lineTo(x, ry + (big ? fluidPx(dims, 16, { min: 11, max: 22 }) : fluidPx(dims, 8, { min: 6, max: 12 })));
-    ctx.lineWidth = big ? fluidPx(dims, 3.5, { min: 2.5, max: 5 }) : fluidPx(dims, 2, { min: 1.5, max: 3 });
+    ctx.lineTo(x, ry + (big ? fluidPx(dims, 15, { min: 11, max: 21 }) : fluidPx(dims, 8, { min: 6, max: 11 })));
+    ctx.lineWidth = big ? fluidPx(dims, 3.2, { min: 2.4, max: 4.6 }) : fluidPx(dims, 1.8, { min: 1.2, max: 2.6 });
     ctx.stroke();
     if (big) {
       ctx.fillStyle = CUTE.ink;
       ctx.font = `900 ${labelSize}px sans-serif`;
       ctx.textAlign = "center"; ctx.textBaseline = "top";
-      ctx.fillText(String(m), x, ry + fluidPx(dims, 19, { min: 13, max: 26 }));
+      ctx.fillText(String(m), x, ry + fluidPx(dims, 19, { min: 14, max: 25 }));
     }
   }
   ctx.restore();
 
-  // 대포 + 도토리
-  const cr = fluidPx(dims, 26, { min: 19, max: 36 });
-  const cannonX = w * 0.08, cannonY = ry - cr * 0.9;
-  drawStickerRect(ctx, cannonX, cannonY, cr * 2.2, cr * 1.1, cr * 0.4, CUTE.orangeDark, { lineWidth: 3.5 });
-  drawMascot(ctx, cannonX, cannonY - cr * 1.5, cr, CHAR, party.currentMood(remain));
+  // 캐논 — 당길수록 뒤로 젖혀진다
+  const cr = fluidPx(dims, 25, { min: 19, max: 34 });
+  const lean = (pull / MAXM) * 0.5;
+  const cx = w * 0.06, cy = ry - cr * 0.9;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(-lean);
+  drawStickerRect(ctx, cr * 0.6, 0, cr * 2.3, cr * 1.05, cr * 0.4, CUTE.orangeDark, { lineWidth: 3.5 });
+  ctx.restore();
+  drawMascot(ctx, cx, cy - cr * 1.7, cr, CHAR, party.currentMood(remain));
 
-  // 힘 게이지 — 눈금자와 같은 x축을 쓰므로 "지금 던지면 저기 떨어진다"가 바로 보인다
-  if (phase === "aim") {
-    const gy = ry + fluidPx(dims, 52, { min: 38, max: 74 });
-    const gh = fluidPx(dims, 16, { min: 12, max: 24 });
-    drawStickerRect(ctx, (RX0() + RX1()) / 2, gy, RX1() - RX0(), gh, gh / 2, "rgba(255,255,255,0.75)", {
-      lineWidth: fluidPx(dims, 3, { min: 2, max: 4.5 }), drop: 3, gloss: false,
-    });
-    const gx = mToX(gaugeVal);
+  // 당기는 중 — 예상 착지점과 포물선 미리보기
+  if (phase === "aim" && pull > 0.2) {
+    const px = mToX(Math.round(pull * 2) / 2);
     ctx.save();
-    ctx.fillStyle = PARTY.gold;
+    ctx.setLineDash([9, 8]);
+    ctx.strokeStyle = "rgba(255,207,63,0.95)";
+    ctx.lineWidth = fluidPx(dims, 3.5, { min: 2.5, max: 5 });
     ctx.beginPath();
-    ctx.roundRect(RX0(), gy - gh / 2, gx - RX0(), gh, gh / 2);
-    ctx.fill();
+    for (let i = 0; i <= 24; i++) {
+      const t = i / 24;
+      const x = cx + (px - cx) * t;
+      const y = cy - Math.sin(Math.PI * t) * h * 0.30;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
     ctx.restore();
-    drawSticker(ctx, gx, gy, gh * 0.85, CUTE.red, { lineWidth: 3 });
-    // 지금 눈금 값을 위쪽에 크게 보여 준다
-    drawChunkyText(ctx, `${(Math.round(gaugeVal * 2) / 2).toFixed(1)} m`, gx, ry - fluidPx(dims, 26, { min: 19, max: 36 }),
-      fluidPx(dims, 20, { min: 14, max: 27 }), "#fff", { outline: CUTE.ink, outlineWidth: fluidPx(dims, 6, { min: 4, max: 8 }) });
-    // 조준 점선
+    drawSticker(ctx, px, ry, fluidPx(dims, 12, { min: 9, max: 17 }), PARTY.gold, { lineWidth: 3 });
+    drawChunkyText(ctx, `${(Math.round(pull * 2) / 2).toFixed(1)} m`, px, ry - fluidPx(dims, 30, { min: 22, max: 42 }),
+      fluidPx(dims, 24, { min: 17, max: 32 }), "#fff",
+      { outline: CUTE.ink, outlineWidth: fluidPx(dims, 6, { min: 4, max: 9 }) });
+
+    // 당김 게이지 (뒤로 당긴 정도)
+    const gy = ry + fluidPx(dims, 48, { min: 34, max: 68 });
+    const gh = fluidPx(dims, 14, { min: 10, max: 20 });
+    drawStickerRect(ctx, (PULL_FULL() + PULL_ZERO()) / 2, gy, PULL_ZERO() - PULL_FULL(), gh, gh / 2,
+      "rgba(255,255,255,0.7)", { lineWidth: 2.5, drop: 2, gloss: false });
+    const fillW = (pull / MAXM) * (PULL_ZERO() - PULL_FULL());
     ctx.save();
-    ctx.strokeStyle = "rgba(255,207,63,0.85)";
-    ctx.lineWidth = fluidPx(dims, 3, { min: 2, max: 5 });
-    ctx.setLineDash([9, 7]);
-    ctx.beginPath(); ctx.moveTo(gx, ry - fluidPx(dims, 16, { min: 12, max: 22 })); ctx.lineTo(gx, ry); ctx.stroke();
+    ctx.fillStyle = CUTE.red;
+    ctx.beginPath();
+    ctx.roundRect(PULL_ZERO() - fillW, gy - gh / 2, fillW, gh, gh / 2);
+    ctx.fill();
     ctx.restore();
   }
 
   // 날아가는 공
-  if (phase === "fly" || (resultMark && now - resultMark.at < 900)) {
+  if (phase === "fly" || (resultMark && now - resultMark.at < 800)) {
     const t = phase === "fly" ? Math.min(1, (now - ball.start) / ball.dur) : 1;
-    const bx = cannonX + (mToX(ball.landed) - cannonX) * t;
-    const by = cannonY - Math.sin(Math.PI * t) * h * 0.34;
+    const bx = cx + (mToX(ball.landed) - cx) * t;
+    const by = cy - Math.sin(Math.PI * t) * h * 0.32;
     ctx.save();
     ctx.font = `${cr * 1.1}px sans-serif`;
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
@@ -520,27 +545,26 @@ function stepGame() {
     ctx.restore();
   }
 
-  // 착지 표시
   if (resultMark) {
     const x = mToX(resultMark.landed);
-    drawSticker(ctx, x, ry, fluidPx(dims, 14, { min: 10, max: 19 }), resultMark.ok ? CUTE.green : CUTE.red, { lineWidth: 3 });
+    drawSticker(ctx, x, ry, fluidPx(dims, 13, { min: 9, max: 18 }), resultMark.ok ? CUTE.green : CUTE.red, { lineWidth: 3 });
     if (!resultMark.ok) {
-      // 정답 위치를 점선 화살표로 알려 준다 (다음 문제는 새 값이라 외워서 맞힐 수 없다)
       const ax = mToX(round.value);
       ctx.save();
       ctx.strokeStyle = CUTE.green; ctx.lineWidth = fluidPx(dims, 4, { min: 3, max: 6 });
       ctx.setLineDash([8, 6]);
-      ctx.beginPath(); ctx.moveTo(ax, ry - fluidPx(dims, 54, { min: 38, max: 74 })); ctx.lineTo(ax, ry); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ax, ry - fluidPx(dims, 52, { min: 38, max: 72 })); ctx.lineTo(ax, ry); ctx.stroke();
       ctx.restore();
-      drawChunkyText(ctx, `정답 ${round.value} m`, ax, ry - fluidPx(dims, 66, { min: 48, max: 92 }),
-        fluidPx(dims, 18, { min: 13, max: 24 }), "#fff", { outline: CUTE.green, outlineWidth: fluidPx(dims, 5, { min: 3.5, max: 7 }) });
+      drawChunkyText(ctx, `정답 ${round.value} m`, ax, ry - fluidPx(dims, 64, { min: 46, max: 90 }),
+        fluidPx(dims, 18, { min: 13, max: 24 }), "#fff",
+        { outline: CUTE.green, outlineWidth: fluidPx(dims, 5, { min: 3.5, max: 7 }) });
     }
   }
 
   const hudBottom = party.drawHud(ctx, dims, { remainMs: remain, count, suffix: "번" });
   drawCuteBanner(ctx, dims, [
-    { text: `${round.text} = ? m 만큼 던져요!`, size: 27, chunky: true, color: PARTY.gold },
-    { text: "계산한 거리의 눈금에서 발사하세요", size: 14, color: CUTE.ink },
+    { text: `${round.text} = ? m`, size: 28, chunky: true, color: PARTY.gold },
+    { text: mode === "motion" ? "계산한 거리만큼 당겼다가 앞으로 휘두르세요" : "계산한 거리만큼 당겼다가 손을 떼세요", size: 14, color: CUTE.ink },
   ], fluidPx, { top: hudBottom });
 
   party.update(dt);

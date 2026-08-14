@@ -8,6 +8,7 @@
 import {
   CUTE, drawSticker, drawStickerRect, drawChunkyText, drawSparkle, bob,
 } from "./cute.js";
+import { SmoothedPoint } from "./engine.js";
 
 // 기존 CUTE 팔레트에 파티용 3색을 더한다
 export const PARTY = {
@@ -34,31 +35,65 @@ export const CHARACTERS = {
 const MOOD_BADGE = { idle: "", happy: "💛", sad: "💧", hurry: "💦", combo: "🔥" };
 
 // ---------------------------------------------------------------------------
-// 파티 보드 진행 상태 (localStorage)
-// 별 6개를 모으면 종합 우승. 다음 수업 때 이어서 할 수 있도록 저장한다.
+// 양손 입력 — 이 학년판의 핵심.
+//
+// 6종목 중 절반이 "두 손 사이의 간격/자리"로 답을 만들기 때문에, 어느 쪽이 왼손이고
+// 어느 쪽이 오른손인지가 프레임마다 흔들리면 안 된다. x좌표로 갈라 항상 같은 쪽에
+// 배정하고, 이동평균으로 떨림을 줄인다.
+//
+// 모드별 대체 수단:
+//  - motion: 실제 두 손
+//  - touch : 두 손가락 멀티터치
+//  - mouse : 손이 하나뿐이므로 각 게임이 알아서 대체한다(가까운 쪽 잡기·자동 미러 등)
 // ---------------------------------------------------------------------------
-export const Board = {
-  KEY: "smo5_board",
-  _blank() { return { pos: 0, coins: 0, stars: {}, lastUnit: null, lastCoins: 0 }; },
-  load() {
-    try { return Object.assign(this._blank(), JSON.parse(localStorage.getItem(this.KEY)) || {}); }
-    catch (e) { return this._blank(); }
-  },
-  save(state) {
-    try { localStorage.setItem(this.KEY, JSON.stringify(state)); } catch (e) {}
-  },
-  reset() { this.save(this._blank()); },
-  starCount() { return Object.keys(this.load().stars).length; },
-  // 게임이 끝날 때 호출 — 코인을 적립하고, 동메달 이상이면 그 종목의 별을 켠다
-  finishGame(unit, { coins = 0, earnedStar = false } = {}) {
-    const s = this.load();
-    s.coins += coins;
-    if (earnedStar) s.stars[unit] = true;
-    s.lastUnit = unit;
-    s.lastCoins = coins;
-    this.save(s);
-  },
-};
+export class HandPair {
+  constructor(n = 6) {
+    this.ls = new SmoothedPoint(n);
+    this.rs = new SmoothedPoint(n);
+    this.left = null;
+    this.right = null;
+    this.both = false;
+    this.missingSince = performance.now();
+  }
+  update(cursors) {
+    if (cursors.length >= 2) {
+      const s = [...cursors].sort((a, b) => a.x - b.x);
+      const a = s[0], b = s[s.length - 1];
+      this.left = this.ls.push(a.x, a.y);
+      this.right = this.rs.push(b.x, b.y);
+      this.both = true;
+      this.missingSince = 0;
+    } else {
+      // 한 손만 잡히면 즉시 끊지 않고 잠깐 마지막 위치를 유지한다 —
+      // 인식이 한두 프레임 깜빡였다고 만들던 게이트가 무너지면 아이가 억울하다
+      if (this.both && this.missingSince === 0) this.missingSince = performance.now();
+      if (this.missingSince && performance.now() - this.missingSince > 400) {
+        this.both = false;
+        this.ls.reset(); this.rs.reset();
+        this.left = null; this.right = null;
+      }
+    }
+    return this;
+  }
+  get width() { return this.both ? Math.abs(this.right.x - this.left.x) : 0; }
+  reset() {
+    this.ls.reset(); this.rs.reset();
+    this.left = null; this.right = null; this.both = false;
+    this.missingSince = performance.now();
+  }
+}
+
+// "두 손을 보여주세요" 안내 — 양손 종목에서 한 손만 잡힐 때 화면 가운데에 띄운다
+export function drawTwoHandHint(ctx, dims, fluidPx) {
+  const { w, h } = dims;
+  const size = fluidPx(dims, 26, { min: 18, max: 34 });
+  ctx.save();
+  ctx.globalAlpha = 0.55 + Math.sin(performance.now() / 320) * 0.25;
+  drawChunkyText(ctx, "🙌 두 손을 보여주세요!", w / 2, h * 0.52, size, "#fff", {
+    outline: CUTE.ink, outlineWidth: Math.max(4, size * 0.22),
+  });
+  ctx.restore();
+}
 
 // ---------------------------------------------------------------------------
 // 배경 — 파스텔 하늘 + 뭉게구름 + 잔디 언덕

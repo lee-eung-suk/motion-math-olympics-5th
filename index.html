@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>수학 체육올림픽 5학년</title>
-<link rel="stylesheet" href="css/style.css?v=5">
+<link rel="stylesheet" href="css/style.css?v=6">
 </head>
 <body class="landing">
 
@@ -20,8 +20,8 @@
 <div class="menu-wrap">
   <div class="menu-header">
     <div>
-      <h1>🎪 수학 체육올림픽</h1>
-      <div class="sub">초등 5학년 2학기 · 거리 도전 &amp; 필드형 경쟁 6종목</div>
+      <h1>🏃 수학 체육올림픽</h1>
+      <div class="sub">초등 5학년 2학기 · 몸으로 답을 만드는 6종목</div>
     </div>
     <div class="actions">
       <button class="icon-btn" id="modeBtn">📷 모드</button>
@@ -32,31 +32,11 @@
 
   <div id="trophySlot"></div>
 
-  <div class="board-tabs">
-    <button class="board-tab on" id="tabBoard">🎲 파티 보드</button>
-    <button class="board-tab" id="tabFree">📋 자유 선택</button>
-  </div>
+  <div class="section-label">🎮 종목을 고르면 바로 시작해요</div>
+  <div class="grid" id="grid"></div>
 
-  <!-- ── 파티 보드 ─────────────────────────────────────────────── -->
-  <div class="board-wrap" id="boardView">
-    <div class="board" id="board">
-      <div class="board-piece" id="piece">🧢</div>
-      <div class="board-center">
-        <div class="board-status" id="boardStatus">🪙 0 &nbsp; ⭐ 0/6</div>
-        <button class="dice-btn" id="diceBtn">🎲</button>
-        <div class="board-hint" id="boardHint">주사위를 굴려 보세요!</div>
-        <button class="board-reset" id="resetBtn">처음부터</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ── 자유 선택 ─────────────────────────────────────────────── -->
-  <div id="freeView" style="display:none;">
-    <div class="section-label">🎮 종목을 고르면 바로 시작해요</div>
-    <div class="grid" id="grid"></div>
-    <div class="start-cta-row">
-      <button class="start-cta" id="randomStartBtn">🎮 아무거나 시작하기</button>
-    </div>
+  <div class="start-cta-row">
+    <button class="start-cta" id="randomStartBtn">🎮 올림픽 시작하기</button>
   </div>
 
   <div class="footer">📄 개인정보 처리방침 · 카메라 영상은 저장되지 않아요 (녹화 영상은 기기에만 저장됩니다)</div>
@@ -76,193 +56,61 @@
       <img src="assets/button3.png" alt="마우스 모드: PC에서 마우스로 클릭·드래그해요">
     </button>
   </div>
+  <p class="small-note">이 학년판은 <b>두 손을 함께 쓰는 종목이 많아</b> 모션인식에서 가장 재미있어요.</p>
 </div>
 
 <div class="overlay-panel" id="helpPanel" style="display:none;position:fixed;">
   <div class="help-modal">
-    <h2>🎪 몸으로 푸는 수학 파티! 노는 방법</h2>
-    <p class="help-sub">주사위를 굴려 보드를 돌고, 종목 칸에 서면 미니게임이 시작돼요!</p>
+    <h2>🏃 몸으로 답을 만드는 수학!</h2>
+    <p class="help-sub">정답을 손가락으로 <b>고르는</b> 게 아니라, 두 손으로 <b>만들어요.</b></p>
     <div class="help-steps">
       <img src="assets/help1.png" alt="1단계 모션 인식: 손을 들어 준비, 2단계 터치 방식: 화면을 콕 눌러 시작">
       <img src="assets/help2.png" alt="3단계 60초 동안 신나게 게임하기, 4단계 멋진 영상과 사진 저장하기">
     </div>
-    <p class="small-note">정답을 맞히면 🪙코인이 쌓이고, 종목을 깨면 ⭐별을 받아요. 별 6개를 모으면 🏆 종합 우승!</p>
+    <p class="small-note">두 손 사이 간격이 <b>범위·길이·넓이</b>가 되고, 손 높이가 <b>값</b>이 돼요. 손 옆에 숫자가 계속 보이니 그걸 보며 맞추면 됩니다.</p>
     <button class="big-btn" id="closeHelp">알겠어요!</button>
   </div>
 </div>
 
 <script type="module">
 import { HighScore, InputMode, FileAudioLoop, showSoundHint } from "./js/engine.js?v=2";
-import { Board, CHARACTERS, irisTransition } from "./js/party.js?v=1";
+import { CHARACTERS, irisTransition } from "./js/party.js?v=2";
 
 const isMuted = () => localStorage.getItem("smo_muted") === "1";
 const bgm = new FileAudioLoop("assets/sounds/bgm.mp3", 0.35);
 if (!isMuted()) bgm.play(showSoundHint);
 
+// motion: 이 종목에서 몸으로 실제로 하는 일 — 카드에 적어 두면 고르기 전에 기대가 생긴다
 const UNITS = [
-  // short: 보드 칸에 들어가는 짧은 이름 (긴 이름은 동그란 칸 밖으로 삐져나온다)
-  { id: "f1", emoji: "🦘", title: "종목 1", sub: "수의 범위와 어림하기 · 멀리뛰기", name: "어림 멀리뛰기", short: "어림뛰기", href: "games/u1-round.html", thumb: "assets/thumb1.png" },
-  { id: "f2", emoji: "🥎", title: "종목 2", sub: "분수의 곱셈 · 투구", name: "분수 캐논 투척", short: "분수캐논", href: "games/u2-fracmul.html", thumb: "assets/thumb2.png" },
-  { id: "f3", emoji: "🪞", title: "종목 3", sub: "합동과 대칭 · 필드 수비", name: "대칭 수비 미러", short: "대칭수비", href: "games/u3-symmetry.html", thumb: "assets/thumb3.png" },
-  { id: "f4", emoji: "📡", title: "종목 4", sub: "소수의 곱셈 · 거리 계측", name: "소수 비거리 레이더", short: "소수레이더", href: "games/u4-decmul.html", thumb: "assets/thumb4.png" },
-  { id: "f5", emoji: "📦", title: "종목 5", sub: "직육면체 · 베이스런", name: "전개도 베이스런", short: "전개도런", href: "games/u5-cuboid.html", thumb: "assets/thumb5.png" },
-  { id: "f6", emoji: "📊", title: "종목 6", sub: "평균과 가능성 · 타격", name: "평균 홈런 더비", short: "평균홈런", href: "games/u6-average.html", thumb: "assets/thumb6.png" },
+  { id: "f1", emoji: "🚪", title: "종목 1", sub: "수의 범위와 어림하기", name: "어림 게이트",
+    motion: "🙌 양손을 벌려 범위의 문을 만들어요", href: "games/u1-round.html", thumb: "assets/thumb1.png" },
+  { id: "f2", emoji: "🥎", title: "종목 2", sub: "분수의 곱셈", name: "백스윙 투척",
+    motion: "💪 팔을 뒤로 당겼다 휘둘러 던져요", href: "games/u2-fracmul.html", thumb: "assets/thumb2.png" },
+  { id: "f3", emoji: "🪞", title: "종목 3", sub: "합동과 대칭", name: "대칭 미러 수비",
+    motion: "🙌 두 손을 대칭으로 맞춰 막아요", href: "games/u3-symmetry.html", thumb: "assets/thumb3.png" },
+  { id: "f4", emoji: "📐", title: "종목 4", sub: "소수의 곱셈", name: "소수 매트 만들기",
+    motion: "🙌 양손이 매트의 두 꼭짓점이 돼요", href: "games/u4-decmul.html", thumb: "assets/thumb4.png" },
+  { id: "f5", emoji: "🎲", title: "종목 5", sub: "직육면체", name: "상자 굴리기",
+    motion: "👋 손을 휘둘러 상자를 굴려요", href: "games/u5-cuboid.html", thumb: "assets/thumb5.png" },
+  { id: "f6", emoji: "⚖️", title: "종목 6", sub: "평균과 가능성", name: "평균 균형대",
+    motion: "✋ 손 높이로 평균을 맞춰요", href: "games/u6-average.html", thumb: "assets/thumb6.png" },
 ];
-const UNIT_BY_ID = Object.fromEntries(UNITS.map((u) => [u.id, u]));
 
 function goToGame(href) {
   bgm.stop();
   irisTransition(() => { location.href = href; });
 }
 
-// ---------------------------------------------------------------------------
-// 파티 보드 — 12칸 순환(종목 6칸 + 이벤트 6칸). 주사위를 굴려 말이 이동한다.
-// ---------------------------------------------------------------------------
-const CELLS = [
-  { kind: "home", emoji: "🏠", tag: "출발" },
-  { kind: "unit", unit: "f1" },
-  { kind: "coin", emoji: "🪙", tag: "코인+10" },
-  { kind: "unit", unit: "f2" },
-  { kind: "bonus", emoji: "⭐", tag: "보너스" },
-  { kind: "unit", unit: "f3" },
-  { kind: "reroll", emoji: "🔄", tag: "한 번 더" },
-  { kind: "unit", unit: "f4" },
-  { kind: "gift", emoji: "🎁", tag: "랜덤 종목" },
-  { kind: "unit", unit: "f5" },
-  { kind: "coin", emoji: "🪙", tag: "코인+10" },
-  { kind: "unit", unit: "f6" },
-];
+// 별은 따로 저장하지 않고 각 종목의 최고 기록에서 파생한다 (동메달 이상이면 ⭐)
+function hasStar(best) { return !!(best && best.label && !best.label.startsWith("🏅")); }
 
-const boardEl = document.getElementById("board");
-const pieceEl = document.getElementById("piece");
-const statusEl = document.getElementById("boardStatus");
-const hintEl = document.getElementById("boardHint");
-const diceBtn = document.getElementById("diceBtn");
-
-// 칸을 타원 위에 고르게 배치한다 (0번 출발 칸이 맨 위)
-function cellPos(i) {
-  const a = -Math.PI / 2 + (i / CELLS.length) * Math.PI * 2;
-  return { left: 50 + Math.cos(a) * 40, top: 50 + Math.sin(a) * 37 };
-}
-
-let state = Board.load();
-const cellEls = [];
-
-CELLS.forEach((c, i) => {
-  const p = cellPos(i);
-  const el = document.createElement("button");
-  el.className = `board-cell ${c.kind === "unit" ? "unit" : c.kind === "home" ? "home" : "event"}`;
-  el.style.left = p.left + "%";
-  el.style.top = p.top + "%";
-  const u = c.unit ? UNIT_BY_ID[c.unit] : null;
-  el.innerHTML = u
-    ? `<span>${CHARACTERS[c.unit].emoji}</span><span class="bc-tag">${u.short}</span><span class="bc-star" style="display:none">⭐</span>`
-    : `<span>${c.emoji}</span><span class="bc-tag">${c.tag}</span>`;
-  // 칸을 직접 눌러도 그 종목으로 갈 수 있게 한다 — 수업 중 특정 단원만 시킬 때 필요하다
-  if (u) el.addEventListener("click", () => goToGame(u.href));
-  boardEl.appendChild(el);
-  cellEls.push(el);
-});
-
-function refreshBoard() {
-  const p = cellPos(state.pos);
-  pieceEl.style.left = p.left + "%";
-  pieceEl.style.top = p.top + "%";
-  const starCount = Object.keys(state.stars).length;
-  statusEl.innerHTML = `🪙 ${state.coins} &nbsp; ⭐ ${starCount}/6`;
-  cellEls.forEach((el, i) => {
-    el.classList.toggle("here", i === state.pos);
-    const c = CELLS[i];
-    if (c.unit) {
-      const got = !!state.stars[c.unit];
-      el.classList.toggle("done", got);
-      el.querySelector(".bc-star").style.display = got ? "block" : "none";
-    }
-  });
-
-  const slot = document.getElementById("trophySlot");
-  slot.innerHTML = starCount >= 6
-    ? `<div class="trophy-banner">🏆 별 6개 모두 모았어요! 종합 우승 트로피 🎉</div>` : "";
-}
-
-let rolling = false;
-function rollDice() {
-  if (rolling) return;
-  rolling = true;
-  diceBtn.classList.add("rolling");
-  hintEl.textContent = "굴리는 중…";
-
-  const steps = 1 + Math.floor(Math.random() * 6);
-  setTimeout(() => {
-    diceBtn.classList.remove("rolling");
-    diceBtn.textContent = ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"][steps - 1];
-    hintEl.textContent = `${steps}칸 이동!`;
-    moveSteps(steps);
-  }, 700);
-}
-
-// 한 칸씩 통통 튀며 이동해야 "말이 걸어간다"는 느낌이 난다
-function moveSteps(n) {
-  if (n <= 0) { rolling = false; landOn(); return; }
-  state.pos = (state.pos + 1) % CELLS.length;
-  Board.save(state);
-  refreshBoard();
-  setTimeout(() => moveSteps(n - 1), 260);
-}
-
-function landOn() {
-  const c = CELLS[state.pos];
-  if (c.kind === "unit") {
-    const u = UNIT_BY_ID[c.unit];
-    hintEl.textContent = `${u.name} 시작!`;
-    setTimeout(() => goToGame(u.href), 700);
-  } else if (c.kind === "coin") {
-    state.coins += 10;
-    Board.save(state); refreshBoard();
-    hintEl.textContent = "🪙 코인 10개 획득!";
-  } else if (c.kind === "bonus") {
-    state.coins += 25;
-    Board.save(state); refreshBoard();
-    hintEl.textContent = "⭐ 보너스! 코인 25개!";
-  } else if (c.kind === "reroll") {
-    hintEl.textContent = "🔄 한 번 더 굴려요!";
-    setTimeout(rollDice, 800);
-  } else if (c.kind === "gift") {
-    const pick = UNITS[Math.floor(Math.random() * UNITS.length)];
-    hintEl.textContent = `🎁 랜덤 — ${pick.name}!`;
-    setTimeout(() => goToGame(pick.href), 800);
-  } else {
-    hintEl.textContent = "🏠 출발점이에요. 한 바퀴 더!";
-  }
-  diceBtn.textContent = "🎲";
-}
-
-diceBtn.addEventListener("click", rollDice);
-document.getElementById("resetBtn").addEventListener("click", () => {
-  if (!confirm("보드를 처음부터 다시 시작할까요? (코인과 별이 사라져요)")) return;
-  Board.reset();
-  state = Board.load();
-  refreshBoard();
-  hintEl.textContent = "새 판을 시작해요!";
-});
-
-// 방금 게임을 끝내고 돌아왔다면 결과를 알려 준다
-if (state.lastUnit) {
-  const u = UNIT_BY_ID[state.lastUnit];
-  hintEl.textContent = `${u ? u.name : "종목"}에서 🪙${state.lastCoins} 획득!`;
-  state.lastUnit = null;
-  Board.save(state);
-}
-refreshBoard();
-
-// ---------------------------------------------------------------------------
-// 자유 선택 탭 — 선생님이 특정 단원만 시키고 싶을 때 쓴다
-// ---------------------------------------------------------------------------
+let starCount = 0;
 const grid = document.getElementById("grid");
 UNITS.forEach((u) => {
   const card = document.createElement("button");
   card.className = "card";
   const best = HighScore.get(u.id);
+  if (hasStar(best)) starCount++;
   card.innerHTML = `
     <div class="card-head">
       <span class="card-badge">${u.title}</span>
@@ -270,6 +118,7 @@ UNITS.forEach((u) => {
     </div>
     <div class="card-name">${CHARACTERS[u.id].emoji} ${u.name}</div>
     <div class="card-thumb" data-emoji="${u.emoji}"><img src="${u.thumb}" alt="${u.name}" loading="lazy"></div>
+    <div class="card-motion">${u.motion}</div>
     <div class="card-foot">${best ? best.label : "아직 기록 없음"}</div>
   `;
   // 썸네일 그림 안에 종목 이름이 들어 있으므로, 그림이 뜨면 글자 제목은 숨겨
@@ -293,25 +142,14 @@ document.getElementById("randomStartBtn").addEventListener("click", () => {
   goToGame(UNITS[Math.floor(Math.random() * UNITS.length)].href);
 });
 
-const boardView = document.getElementById("boardView");
-const freeView = document.getElementById("freeView");
-const tabBoard = document.getElementById("tabBoard");
-const tabFree = document.getElementById("tabFree");
-function showTab(which) {
-  const isBoard = which === "board";
-  boardView.style.display = isBoard ? "flex" : "none";
-  freeView.style.display = isBoard ? "none" : "block";
-  tabBoard.classList.toggle("on", isBoard);
-  tabFree.classList.toggle("on", !isBoard);
-  localStorage.setItem("smo5_tab", which);
+if (starCount >= UNITS.length) {
+  document.getElementById("trophySlot").innerHTML =
+    `<div class="trophy-banner">🏆 6종목 모두 메달! 종합 우승 트로피 🎉</div>`;
+} else if (starCount > 0) {
+  document.getElementById("trophySlot").innerHTML =
+    `<div class="star-progress">⭐ ${starCount} / ${UNITS.length} 종목 메달</div>`;
 }
-tabBoard.addEventListener("click", () => showTab("board"));
-tabFree.addEventListener("click", () => showTab("free"));
-showTab(localStorage.getItem("smo5_tab") || "board");
 
-// ---------------------------------------------------------------------------
-// 도움말 · 조작 방식 · 소리
-// ---------------------------------------------------------------------------
 const helpPanel = document.getElementById("helpPanel");
 document.getElementById("helpBtn").addEventListener("click", () => helpPanel.style.display = "flex");
 document.getElementById("closeHelp").addEventListener("click", () => helpPanel.style.display = "none");
