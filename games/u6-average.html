@@ -309,9 +309,14 @@ function succeed() {
   if (party.combo > 0 && party.combo === party.maxCombo) comboShot.capture(canvas);
   autoDiff.reportCorrect();
   autoRec.trigger();
-  shake.trigger(6, 160);
-  spawnSparkles(sparks, w * 0.55, y, 24, ["#fff", PARTY.gold, CUTE.green]);
-  spawnConfetti(confetti, w * 0.55, y, 30);
+  shake.trigger(8, 200);
+  // 강화된 파티클 효과
+  spawnSparkles(sparks, w * 0.55, y, 32, ["#fff", PARTY.gold, CUTE.green, CUTE.green]);
+  spawnSparkles(sparks, w * 0.55 - 60, y - 40, 12, [PARTY.gold, CUTE.green]);
+  spawnSparkles(sparks, w * 0.55 + 60, y - 40, 12, [PARTY.gold, CUTE.green]);
+  spawnSparkles(sparks, w * 0.55 - 60, y + 40, 12, [PARTY.gold, CUTE.green]);
+  spawnSparkles(sparks, w * 0.55 + 60, y + 40, 12, [PARTY.gold, CUTE.green]);
+  spawnConfetti(confetti, w * 0.55, y, 40);
   setTimeout(() => { if (state === "playing") newRound(); }, round.type === "avg" && round.hideIdx < 0 ? 1900 : 1200);
 }
 
@@ -366,7 +371,7 @@ document.getElementById("retryBtn").addEventListener("click", () => {
 });
 
 document.getElementById("raisePanel").addEventListener("click", () => {
-  if (state === "raise" && mode !== "motion") goReady();
+  if (state === "raise") goReady();
 });
 
 function goReady() {

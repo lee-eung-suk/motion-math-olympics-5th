@@ -250,11 +250,11 @@ async function init() {
     title: "상자 굴리기",
     lines: [
       mode === "motion"
-        ? "손을 <b>좌·우·위·아래로 휘두르면</b> 그 방향으로 상자가 한 번 굴러요."
-        : "화면을 <b>드래그(스와이프)</b>하면 그 방향으로 상자가 한 번 굴러요.",
-      "왼쪽 전개도를 보고, 조건에 맞는 면이 <b>제자리에 오도록</b> 굴려요.",
-      "굴려 보면 <b>숨어 있던 면</b>이 나타나요. 머릿속으로 상상하지 말고 직접 굴려 확인!",
-      "성공하면 한 루씩 진루하고, <b>4루를 돌면 홈인</b>이에요.",
+        ? "손을 <b>좌·우·위·아래로 휘두르면</b> 상자가 그 방향으로 굴러요."
+        : "화면을 <b>드래그(스와이프)</b>하면 상자가 그 방향으로 굴러요.",
+      "화면에서 상자의 앞·위·오른쪽 세 면이 보여요. 조건에 맞는 <b>면을 제자리에</b> 놓아야 해요.",
+      "각 면에 <b>색상과 글자(가, 나, 다, 라, 마, 바)</b>가 있어요. 둘 다 맞춰야 정답!",
+      "성공하면 <b>1루씩 진루</b>하고, <b>4루를 돌면 홈인</b>이 됩니다!",
     ],
   });
 
@@ -350,16 +350,22 @@ function succeed() {
   count++;
   base++;
   const { w, h } = dims;
-  party.correct(w * 0.62, h * 0.55, { base: 11, elapsedMs: performance.now() - roundAt });
+  const cx = w * 0.62, cy = h * 0.55;
+  party.correct(cx, cy, { base: 11, elapsedMs: performance.now() - roundAt });
   if (party.combo > 0 && party.combo === party.maxCombo) comboShot.capture(canvas);
   autoDiff.reportCorrect();
   autoRec.trigger();
-  shake.trigger(7, 170);
-  spawnSparkles(sparks, w * 0.62, h * 0.55, 24, ["#fff", PARTY.gold, CUTE.green]);
+  shake.trigger(8, 200);
+  // 강화된 파티클 효과
+  spawnSparkles(sparks, cx, cy, 32, ["#fff", PARTY.gold, CUTE.green, CUTE.green]);
+  spawnSparkles(sparks, cx - 50, cy - 50, 12, [PARTY.gold, CUTE.green]);
+  spawnSparkles(sparks, cx + 50, cy - 50, 12, [PARTY.gold, CUTE.green]);
+  spawnSparkles(sparks, cx - 50, cy + 50, 12, [PARTY.gold, CUTE.green]);
+  spawnSparkles(sparks, cx + 50, cy + 50, 12, [PARTY.gold, CUTE.green]);
   const homeRun = base >= 4;
   if (homeRun) {
     base = 0;
-    spawnConfetti(confetti, w * 0.62, h * 0.55, 44);
+    spawnConfetti(confetti, cx, cy, 48);
     if (!isMuted()) sound.fever();
   }
   setTimeout(() => { if (state === "playing") newRound(true); }, homeRun ? 1300 : 850);
@@ -406,7 +412,7 @@ document.getElementById("retryBtn").addEventListener("click", () => {
 });
 
 document.getElementById("raisePanel").addEventListener("click", () => {
-  if (state === "raise" && mode !== "motion") goReady();
+  if (state === "raise") goReady();
 });
 
 function goReady() {
@@ -633,9 +639,21 @@ function stepGame() {
     w * 0.60, h * 0.90, fluidPx(dims, 16, { min: 12, max: 22 }), "#fff",
     { outline: CUTE.ink, outlineWidth: fluidPx(dims, 5, { min: 3.5, max: 7 }) });
 
+  // 목표 진행도 표시
+  const metCount = goal.goals.filter((g) => orient[g.pos] === g.face).length;
+  const totalCount = goal.goals.length;
+  let progressText = goal.text.replace(/[<>]/g, "");
+  if (totalCount > 1) progressText += ` (${metCount}/${totalCount})`;
+
   const hudBottom = party.drawHud(ctx, dims, { remainMs: remain, count, suffix: "루" });
+
+  // 진행도에 따라 색상 변경
+  let progressColor = PARTY.gold;
+  if (metCount === totalCount) progressColor = CUTE.green;
+  else if (metCount > 0) progressColor = "#ffd700";
+
   drawCuteBanner(ctx, dims, [
-    { text: goal.text.replace(/[<>]/g, ""), size: 24, chunky: true, color: PARTY.gold },
+    { text: progressText, size: 24, chunky: true, color: progressColor },
     { text: goal.hint, size: 14, color: CUTE.ink },
   ], fluidPx, { top: hudBottom });
 
