@@ -18,7 +18,7 @@
   </div>
 
   <div class="overlay-panel" id="loadingPanel">
-    <h2>📐 소수 매트 만들기</h2>
+    <h2>📐 소수 매트 맞추기</h2>
     <p id="loadingText">준비 중…</p>
   </div>
 
@@ -55,7 +55,7 @@
   <div class="overlay-panel" id="resultPanel" style="display:none">
     <div id="podium"></div>
     <div class="result-stats">
-      <div class="stat-box"><div class="num" id="statCount">0개</div><div class="label">만든 매트</div></div>
+      <div class="stat-box"><div class="num" id="statCount">0개</div><div class="label">완성한 매트</div></div>
       <div class="stat-box"><div class="num" id="statBest">0개</div><div class="label">최고 기록</div></div>
       <div class="stat-box"><div class="num" id="statCombo">0</div><div class="label">최고 콤보</div></div>
     </div>
@@ -93,7 +93,7 @@ import {
 requestWakeLock();
 
 const UNIT = "f4";
-const TITLE = "소수 매트 만들기";
+const TITLE = "소수 매트 맞추기";
 const RECORD_SUFFIX = "개 완성";
 const MEDALS = { bronze: 3, silver: 6, gold: 9 };
 const CHAR = CHARACTERS[UNIT];
@@ -403,7 +403,7 @@ document.getElementById("retryBtn").addEventListener("click", () => {
 });
 
 document.getElementById("raisePanel").addEventListener("click", () => {
-  if (state === "raise") goReady();
+  if (state === "raise" && mode !== "motion") goReady();
 });
 
 function goReady() {
@@ -563,7 +563,6 @@ function stepGame() {
   ctx.restore();
 
   // ── 내가 만든 매트 ──────────────────────────────────────
-  const s = sides();
   if (rect && s) {
     const x = g.ox + Math.min(rect.ax, rect.bx) * g.cell;
     const y = g.oy + Math.min(rect.ay, rect.by) * g.cell;
@@ -647,7 +646,6 @@ function stepGame() {
   // 실시간 피드백 메시지
   let feedbackText = `${round.sample.a} m × ${round.sample.b} m 크기를 맞춰요!`;
   let feedbackColor = PARTY.gold;
-  const s = sides();
   if (s && s.a > 0 && s.b > 0 && !resultMark) {
     const prox = proximityScore(s, round.sample);
     if (matchesTarget(s, round.sample)) {

@@ -55,7 +55,7 @@
   <div class="overlay-panel" id="resultPanel" style="display:none">
     <div id="podium"></div>
     <div class="result-stats">
-      <div class="stat-box"><div class="num" id="statCount">0번</div><div class="label">맞힌 문제</div></div>
+      <div class="stat-box"><div class="num" id="statCount">0번</div><div class="label">성공한 문제</div></div>
       <div class="stat-box"><div class="num" id="statBest">0번</div><div class="label">최고 기록</div></div>
       <div class="stat-box"><div class="num" id="statCombo">0</div><div class="label">최고 콤보</div></div>
     </div>
@@ -371,7 +371,7 @@ document.getElementById("retryBtn").addEventListener("click", () => {
 });
 
 document.getElementById("raisePanel").addEventListener("click", () => {
-  if (state === "raise") goReady();
+  if (state === "raise" && mode !== "motion") goReady();
 });
 
 function goReady() {

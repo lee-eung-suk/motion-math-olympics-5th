@@ -412,7 +412,7 @@ document.getElementById("retryBtn").addEventListener("click", () => {
 });
 
 document.getElementById("raisePanel").addEventListener("click", () => {
-  if (state === "raise") goReady();
+  if (state === "raise" && mode !== "motion") goReady();
 });
 
 function goReady() {
