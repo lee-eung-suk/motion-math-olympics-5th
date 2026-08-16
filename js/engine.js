@@ -760,6 +760,13 @@ export class ComboShot {
     this.captured = false;
   }
   capture(canvasEl) {
+    // 화면이 아직(또는 잠시) 비어 있으면 캡처를 건너뛴다 — 0 크기 캔버스를 그리면 예외가 난다
+    if (!canvasEl.width || !canvasEl.height) return;
+    // 태블릿을 돌려 화면 비율이 바뀌었으면 사진도 그 비율로 맞춘다 (안 그러면 찌그러진다)
+    if (this.off.width !== canvasEl.width || this.off.height !== canvasEl.height) {
+      this.off.width = canvasEl.width;
+      this.off.height = canvasEl.height;
+    }
     this.offCtx.clearRect(0, 0, this.off.width, this.off.height);
     this.offCtx.drawImage(canvasEl, 0, 0, this.off.width, this.off.height);
     this.captured = true;
@@ -958,13 +965,18 @@ export function drawMirroredVideo(ctx, videoEl, canvasW, canvasH) {
   ctx.restore();
 }
 
+// 앱 전환·화면 잠금 중에 resize가 오면 브라우저가 창 크기를 0으로 보고할 때가 있다.
+// 그대로 받으면 캔버스가 0×0으로 굳어 화면이 빈 채 멈추고 사진 저장도 실패하므로,
+// 0이 오면 직전 크기를 그대로 유지한다.
 export function fitCanvasToScreen(canvasEl) {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  canvasEl.width = window.innerWidth * dpr;
-  canvasEl.height = window.innerHeight * dpr;
+  const w = window.innerWidth || canvasEl.clientWidth || canvasEl.width / dpr || 1;
+  const h = window.innerHeight || canvasEl.clientHeight || canvasEl.height / dpr || 1;
+  canvasEl.width = w * dpr;
+  canvasEl.height = h * dpr;
   const ctx = canvasEl.getContext("2d");
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return { w: window.innerWidth, h: window.innerHeight, ctx };
+  return { w, h, ctx };
 }
 
 // 캔버스에 그리는 텍스트(ctx.font) 크기를 화면 크기에 비례해 유동적으로 계산.
