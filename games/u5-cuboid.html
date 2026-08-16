@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>상자 굴리기 · 종목 5</title>
+<title>전개도 펀치 · 종목 5</title>
 <link rel="stylesheet" href="../css/style.css?v=6">
 </head>
 <body>
@@ -18,7 +18,7 @@
   </div>
 
   <div class="overlay-panel" id="loadingPanel">
-    <h2>🎲 상자 굴리기</h2>
+    <h2>🥊 전개도 펀치</h2>
     <p id="loadingText">준비 중…</p>
   </div>
 
@@ -28,7 +28,7 @@
         <div class="rule-char">🐻</div>
         <div>
           <div class="rule-name">네모곰</div>
-          <h2 class="rule-title">상자 굴리기</h2>
+          <h2 class="rule-title">전개도 펀치</h2>
         </div>
       </div>
       <p class="rule-cheer"></p>
@@ -55,8 +55,8 @@
   <div class="overlay-panel" id="resultPanel" style="display:none">
     <div id="podium"></div>
     <div class="result-stats">
-      <div class="stat-box"><div class="num" id="statCount">0루</div><div class="label">진루</div></div>
-      <div class="stat-box"><div class="num" id="statBest">0루</div><div class="label">최고 기록</div></div>
+      <div class="stat-box"><div class="num" id="statCount">0개</div><div class="label">격파한 카드</div></div>
+      <div class="stat-box"><div class="num" id="statBest">0개</div><div class="label">최고 기록</div></div>
       <div class="stat-box"><div class="num" id="statCombo">0</div><div class="label">최고 콤보</div></div>
     </div>
     <video class="preview" id="previewVideo" controls playsinline style="display:none"></video>
@@ -76,7 +76,7 @@ import {
   drawMirroredVideo, fitCanvasToScreen, isHandRaised, getCursors,
   AutoDifficulty, levelFromUrl, medalFor,
   scheduleAutoRecording, ComboShot, drawPhotoOverlay,
-  ScreenShake, InputMode, PointerInput, StartGate, SmoothedPoint,
+  ScreenShake, InputMode, PointerInput, StartGate,
   startCamera, formatFileTimestamp, fluidPx, showSoundHint,
   drawVignette, spawnConfetti, updateConfetti, drawConfetti,
 } from "../js/engine.js?v=3";
@@ -92,9 +92,9 @@ import {
 requestWakeLock();
 
 const UNIT = "f5";
-const TITLE = "상자 굴리기";
-const RECORD_SUFFIX = "루 진루";
-const MEDALS = { bronze: 5, silver: 9, gold: 14 };
+const TITLE = "전개도 펀치";
+const RECORD_SUFFIX = "개 격파";
+const MEDALS = { bronze: 6, silver: 11, gold: 16 };
 const CHAR = CHARACTERS[UNIT];
 const mode = InputMode.get();
 
@@ -105,6 +105,7 @@ let drifters = makeDrifters(10, dims.w, dims.h);
 window.addEventListener("resize", () => {
   dims = fitCanvasToScreen(canvas);
   drifters = makeDrifters(10, dims.w, dims.h);
+  if (cards.length) placeCards(cards.map((c) => c.face));
 });
 
 const sound = new SoundKit();
@@ -117,10 +118,11 @@ document.getElementById("homeBtn").addEventListener("click", goHome);
 document.getElementById("homeBtn2").addEventListener("click", goHome);
 
 function randInt(min, max) { return min + Math.floor(Math.random() * (max - min + 1)); }
+function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 
 // ---------------------------------------------------------------------------
-// 전개도를 접어 각 칸이 입체의 어느 면이 되는지 계산한다.
-// 종이 위를 굴러가는 주사위로 보고, 각 칸에서 "바닥에 닿는 면"의 3차원 방향을 따라간다.
+// 전개도를 접어 각 칸이 입체의 어느 방향을 향하는지 구한다.
+// 이 방향 벡터만 있으면 "마주 보는 면"과 "이웃한 면"을 바로 판정할 수 있다.
 // ---------------------------------------------------------------------------
 const neg = (v) => [-v[0], -v[1], -v[2]];
 const key = (v) => v.join(",");
@@ -153,17 +155,34 @@ function foldNet(cells) {
   return state.map((s) => s.D);
 }
 
+// 전개도가 곧 문제이므로 같은 그림이 반복되지 않도록 넉넉히 갖춰 둔다.
+// 모두 실제로 접히는지 foldNet으로 확인한 것들이다.
+// easy — 가로 4줄 위아래에 한 칸씩 붙은 십자 계열(위·아래 칸이 가까워 접기 쉽다)
+// hard — 위·아래 칸이 멀리 떨어졌거나 계단 모양이라 머릿속에서 접기 어렵다
 const RAW_NETS = {
   easy: [
+    [[0, 0], [0, 1], [1, 1], [2, 1], [3, 1], [0, 2]],
+    [[0, 0], [0, 1], [1, 1], [2, 1], [3, 1], [1, 2]],
+    [[1, 0], [0, 1], [1, 1], [2, 1], [3, 1], [0, 2]],
     [[1, 0], [0, 1], [1, 1], [2, 1], [3, 1], [1, 2]],   // 십자형
+    [[1, 0], [0, 1], [1, 1], [2, 1], [3, 1], [2, 2]],
+    [[2, 0], [0, 1], [1, 1], [2, 1], [3, 1], [1, 2]],
     [[2, 0], [0, 1], [1, 1], [2, 1], [3, 1], [2, 2]],
-    [[1, 0], [1, 1], [0, 2], [1, 2], [2, 2], [3, 2]],
+    [[2, 0], [0, 1], [1, 1], [2, 1], [3, 1], [3, 2]],
+    [[3, 0], [0, 1], [1, 1], [2, 1], [3, 1], [2, 2]],
+    [[3, 0], [0, 1], [1, 1], [2, 1], [3, 1], [3, 2]],
   ],
   hard: [
+    [[0, 0], [0, 1], [1, 1], [2, 1], [3, 1], [2, 2]],
+    [[0, 0], [0, 1], [1, 1], [2, 1], [3, 1], [3, 2]],
+    [[1, 0], [0, 1], [1, 1], [2, 1], [3, 1], [3, 2]],
+    [[2, 0], [0, 1], [1, 1], [2, 1], [3, 1], [0, 2]],
+    [[3, 0], [0, 1], [1, 1], [2, 1], [3, 1], [0, 2]],
+    [[3, 0], [0, 1], [1, 1], [2, 1], [3, 1], [1, 2]],
     [[0, 0], [1, 0], [1, 1], [2, 1], [2, 2], [3, 2]],   // 계단형
     [[0, 0], [0, 1], [1, 1], [2, 1], [2, 2], [3, 2]],
-    [[1, 0], [2, 0], [0, 1], [1, 1], [2, 1], [0, 2]],
-    [[0, 0], [1, 0], [1, 1], [1, 2], [2, 2], [3, 2]],
+    [[0, 0], [1, 0], [1, 1], [2, 1], [3, 1], [3, 2]],
+    [[0, 0], [1, 0], [2, 0], [2, 1], [3, 1], [4, 1]],
   ],
 };
 const NETS = { easy: [], hard: [] };
@@ -176,52 +195,59 @@ for (const k of ["easy", "hard"]) {
 if (!NETS.hard.length) NETS.hard = NETS.easy;
 
 const FACE_NAMES = ["가", "나", "다", "라", "마", "바"];
-const POS_LABEL = { top: "위", front: "앞", bottom: "바닥" };
 
-// 전개도의 D벡터로 처음 자세를 정한다
-const DIR_TO_POS = {
-  "0,0,-1": "front", "0,0,1": "back",
-  "0,1,0": "top", "0,-1,0": "bottom",
-  "1,0,0": "right", "-1,0,0": "left",
-};
-function initialOrient(net) {
-  const o = {};
-  net.dirs.forEach((d, i) => { o[DIR_TO_POS[key(d)]] = i; });
-  return o;
+// 마주 보는 면 = 방향 벡터가 정반대인 면
+function oppositeOf(net, i) {
+  return net.dirs.findIndex((d, j) => j !== i && key(d) === key(neg(net.dirs[i])));
 }
 
-// 손을 휘두른 방향으로 90° 구른다
-function roll(o, dir) {
-  if (dir === "right") return { ...o, front: o.left, right: o.front, back: o.right, left: o.back };
-  if (dir === "left") return { ...o, front: o.right, left: o.front, back: o.left, right: o.back };
-  if (dir === "up") return { ...o, top: o.front, back: o.top, bottom: o.back, front: o.bottom };
-  return { ...o, front: o.top, top: o.back, back: o.bottom, bottom: o.front };
-}
-
-function genGoal(level, net) {
-  const n = net.cells.length;
-  const star = randInt(0, n - 1);
-  const opposite = net.dirs.findIndex((d, i) => i !== star && key(d) === key(neg(net.dirs[star])));
-  if (level === 1) {
+// ---------------------------------------------------------------------------
+// 문제 만들기 — 답은 언제나 한글 한 글자라, 학생은 카드를 하나만 치면 된다.
+// ---------------------------------------------------------------------------
+function genQuestion(level, net) {
+  const all = [0, 1, 2, 3, 4, 5];
+  if (level <= 2) {
+    const a = randInt(0, 5);
+    const answer = oppositeOf(net, a);
     return {
-      star, goals: [{ pos: "top", face: star }],
-      text: `⭐ ${FACE_NAMES[star]} 면이 <위>로 오게 굴려요`,
-      hint: "손을 휘두르면 그 방향으로 상자가 굴러요",
+      marks: [a],
+      answer,
+      faces: shuffle(all.filter((i) => i !== a)),
+      text: level === 1
+        ? `⭐ '${FACE_NAMES[a]}' 면과 마주 보는 면은?`
+        : `⭐ '${FACE_NAMES[a]}' 면과 이웃하지 않은 면은?`,
+      hint: level === 1
+        ? "접었을 때 서로 닿지 않고 정반대에 오는 면이에요"
+        : "이웃하지 않은 면이 곧 마주 보는 면이에요",
+      speed: level === 1 ? 15 : 22,
     };
   }
-  if (level === 2) {
-    let second = randInt(0, n - 1);
-    while (second === star || second === opposite) second = randInt(0, n - 1);
+  // ⭐3 — 세 면이 한 꼭짓점에서 만나려면 셋이 서로 이웃해야 한다.
+  // 'a'와 'b'를 주면 둘 다와 이웃한 면은 정확히 두 개(서로 마주 보는 짝)뿐이므로,
+  // 그중 하나만 카드로 내놓아 정답이 하나가 되게 한다.
+  for (let t = 0; t < 200; t++) {
+    const a = randInt(0, 5);
+    const oa = oppositeOf(net, a);
+    const pool = all.filter((i) => i !== a && i !== oa);
+    const b = pool[randInt(0, pool.length - 1)];
+    const ob = oppositeOf(net, b);
+    const both = all.filter((i) => i !== a && i !== oa && i !== b && i !== ob);
+    if (both.length !== 2) continue;
+    const answer = both[randInt(0, 1)];
     return {
-      star, goals: [{ pos: "front", face: star }, { pos: "top", face: second }],
-      text: `⭐ ${FACE_NAMES[star]} 면은 <앞>, ${FACE_NAMES[second]} 면은 <위>로!`,
-      hint: "두 조건을 동시에 맞춰야 해요",
+      marks: [a, b],
+      answer,
+      faces: shuffle([answer, oa, ob, b]),
+      text: `⭐ '${FACE_NAMES[a]}'·'${FACE_NAMES[b]}' 면과 한 꼭짓점에서 만나는 면은?`,
+      hint: "세 면이 한 점에서 만나려면 셋 다 서로 이웃해야 해요",
+      speed: 30,
     };
   }
+  const a = randInt(0, 5);
   return {
-    star, goals: [{ pos: "bottom", face: opposite }],
-    text: `⭐ ${FACE_NAMES[star]} 면과 <마주 보는 면>을 바닥으로!`,
-    hint: "마주 보는 면을 바닥에 놓으면 ⭐는 자연히 위로 와요",
+    marks: [a], answer: oppositeOf(net, a), faces: shuffle(all.filter((i) => i !== a)),
+    text: `⭐ '${FACE_NAMES[a]}' 면과 마주 보는 면은?`,
+    hint: "접었을 때 정반대에 오는 면이에요", speed: 26,
   };
 }
 
@@ -247,14 +273,14 @@ async function init() {
 
   await showRuleCard({
     unit: UNIT,
-    title: "상자 굴리기",
+    title: "전개도 펀치",
     lines: [
+      "왼쪽 <b>전개도</b>를 보고 문제의 답이 되는 <b>한글 카드</b>를 찾아요.",
       mode === "motion"
-        ? "손을 <b>좌·우·위·아래로 휘두르면</b> 상자가 그 방향으로 굴러요."
-        : "화면을 <b>드래그(스와이프)</b>하면 상자가 그 방향으로 굴러요.",
-      "화면에서 상자의 앞·위·오른쪽 세 면이 보여요. 조건에 맞는 <b>면을 제자리에</b> 놓아야 해요.",
-      "각 면에 <b>색상과 글자(가, 나, 다, 라, 마, 바)</b>가 있어요. 둘 다 맞춰야 정답!",
-      "성공하면 <b>1루씩 진루</b>하고, <b>4루를 돌면 홈인</b>이 됩니다!",
+        ? "정답 카드 위에 <b>손을 올려 잠깐 유지</b>하면 펀치! 카드가 터져요."
+        : "정답 카드를 <b>클릭(터치)해서 잠깐 누르면</b> 펀치! 카드가 터져요.",
+      "카드는 <b>천천히 떠다녀요.</b> 급하게 휘두르지 않아도 돼요.",
+      "⭐1 <b>마주 보는 면</b> → ⭐2 <b>이웃하지 않은 면</b> → ⭐3 <b>한 꼭짓점에서 만나는 면</b>",
     ],
   });
 
@@ -270,10 +296,9 @@ const holdFill = document.getElementById("holdFill");
 const startGate = new StartGate(mode, holdFill);
 
 let autoDiff, count, playEndAt;
-let net, orient, goal, roundAt, resolving, base = 0;
-let rollAnim = null, lastRollAt = 0;
-let trail = [];
-const smooth = new SmoothedPoint(3);
+let net, q, roundAt, resolving;
+let cards = [];
+let aimIdx = -1, aimSince = 0, lockUntil = 0;
 let confetti = [], sparks = [];
 const shake = new ScreenShake();
 let recorder, comboShot, fallbackShot, autoRec, recordedBlob = null;
@@ -281,22 +306,77 @@ const recIndicator = document.getElementById("recIndicator");
 let cursors = [];
 let lastFrameAt = 0;
 
-function newRound(keepBase) {
-  const pool = autoDiff.level === 3 ? NETS.hard : NETS.easy;
-  net = pool[Math.floor(Math.random() * pool.length)];
-  orient = initialOrient(net);
-  goal = genGoal(autoDiff.level, net);
-  // 시작하자마자 정답이면 재미가 없으니 몇 번 굴려 흩어 놓는다
-  const dirs = ["left", "right", "up", "down"];
-  for (let i = 0; i < 5; i++) orient = roll(orient, dirs[randInt(0, 3)]);
-  if (goalMet()) for (let i = 0; i < 3; i++) orient = roll(orient, dirs[randInt(0, 3)]);
-  resolving = false;
-  roundAt = performance.now();
-  rollAnim = null; trail = []; smooth.reset();
-  if (!keepBase) base = base;
+const AIM_MS = 260;   // 이만큼 카드 위에 머무르면 펀치 — 지나가다 잘못 맞는 것을 막는다
+
+// 카드를 겹치지 않게 늘어놓고, 각자 천천히 떠다닐 속도를 준다
+function placeCards(faces) {
+  const { w, h } = dims;
+  const zx = w * 0.37, zy = h * 0.26, zw = w * 0.58, zh = h * 0.54;
+  const r = Math.max(26, Math.min(w, h) * 0.085);
+  const n = faces.length;
+  const cols = n <= 3 ? n : Math.ceil(n / 2);
+  const rows = Math.ceil(n / cols);
+  const speed = q ? q.speed : 18;
+  cards = faces.map((face, i) => {
+    const c = i % cols, rr = Math.floor(i / cols);
+    const ang = Math.random() * Math.PI * 2;
+    return {
+      face, r,
+      x: zx + zw * ((c + 0.5) / cols),
+      y: zy + zh * ((rr + 0.5) / rows),
+      vx: Math.cos(ang) * speed,
+      vy: Math.sin(ang) * speed,
+      pop: 0, bad: 0, gone: false,
+    };
+  });
 }
 
-function goalMet() { return goal.goals.every((g) => orient[g.pos] === g.face); }
+function updateCards(dt) {
+  const { w, h } = dims;
+  const zx = w * 0.35, zy = h * 0.24, zw = w * 0.62, zh = h * 0.58;
+  for (const c of cards) {
+    if (c.gone) continue;
+    c.x += c.vx * dt; c.y += c.vy * dt;
+    if (c.x < zx + c.r) { c.x = zx + c.r; c.vx = Math.abs(c.vx); }
+    if (c.x > zx + zw - c.r) { c.x = zx + zw - c.r; c.vx = -Math.abs(c.vx); }
+    if (c.y < zy + c.r) { c.y = zy + c.r; c.vy = Math.abs(c.vy); }
+    if (c.y > zy + zh - c.r) { c.y = zy + zh - c.r; c.vy = -Math.abs(c.vy); }
+    if (c.pop > 0) c.pop = Math.max(0, c.pop - dt * 2.4);
+    if (c.bad > 0) { c.bad = Math.max(0, c.bad - dt * 2.0); c.vx *= 0.94; c.vy *= 0.94; }
+  }
+
+  // 카드끼리 겹치면 어느 것을 치는지 알 수 없다 — 서로 밀어내고 튕기게 한다
+  for (let i = 0; i < cards.length; i++) {
+    for (let j = i + 1; j < cards.length; j++) {
+      const a = cards[i], b = cards[j];
+      if (a.gone || b.gone) continue;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const d = Math.hypot(dx, dy) || 0.001;
+      const min = (a.r + b.r) * 1.15;
+      if (d >= min) continue;
+      const ux = dx / d, uy = dy / d;
+      const push = (min - d) / 2;
+      a.x -= ux * push; a.y -= uy * push;
+      b.x += ux * push; b.y += uy * push;
+      // 서로 다가오는 중일 때만 속도를 반사한다 (겹친 채 떠는 것을 막는다)
+      const rel = (b.vx - a.vx) * ux + (b.vy - a.vy) * uy;
+      if (rel < 0) {
+        a.vx += rel * ux; a.vy += rel * uy;
+        b.vx -= rel * ux; b.vy -= rel * uy;
+      }
+    }
+  }
+}
+
+function newRound() {
+  const pool = autoDiff.level === 1 ? NETS.easy : (autoDiff.level === 3 ? NETS.hard : NETS.easy.concat(NETS.hard));
+  net = pool[Math.floor(Math.random() * pool.length)];
+  q = genQuestion(autoDiff.level, net);
+  placeCards(q.faces);
+  resolving = false;
+  aimIdx = -1;
+  roundAt = performance.now();
+}
 
 function startCountdown() {
   state = "countdown";
@@ -323,11 +403,12 @@ function beginPlay() {
   state = "playing";
   const prev = HighScore.get(UNIT);
   autoDiff = new AutoDifficulty(levelFromUrl(AutoDifficulty.startLevelFromHighScore(prev)));
-  count = 0; base = 0;
+  count = 0;
   party.reset();
   confetti = []; sparks = [];
   playEndAt = performance.now() + 60000;
   lastFrameAt = 0;
+  lockUntil = 0;
   newRound();
 
   recorder = new ClipRecorder(canvas, sound, 24);
@@ -345,30 +426,41 @@ function beginPlay() {
   });
 }
 
-function succeed() {
+function succeed(card) {
   resolving = true;
   count++;
-  base++;
-  const { w, h } = dims;
-  const cx = w * 0.62, cy = h * 0.55;
-  party.correct(cx, cy, { base: 11, elapsedMs: performance.now() - roundAt });
+  card.pop = 1;
+  card.gone = true;
+  party.correct(card.x, card.y, { base: 11, elapsedMs: performance.now() - roundAt });
   if (party.combo > 0 && party.combo === party.maxCombo) comboShot.capture(canvas);
   autoDiff.reportCorrect();
   autoRec.trigger();
-  shake.trigger(8, 200);
-  // 강화된 파티클 효과
-  spawnSparkles(sparks, cx, cy, 32, ["#fff", PARTY.gold, CUTE.green, CUTE.green]);
-  spawnSparkles(sparks, cx - 50, cy - 50, 12, [PARTY.gold, CUTE.green]);
-  spawnSparkles(sparks, cx + 50, cy - 50, 12, [PARTY.gold, CUTE.green]);
-  spawnSparkles(sparks, cx - 50, cy + 50, 12, [PARTY.gold, CUTE.green]);
-  spawnSparkles(sparks, cx + 50, cy + 50, 12, [PARTY.gold, CUTE.green]);
-  const homeRun = base >= 4;
-  if (homeRun) {
-    base = 0;
-    spawnConfetti(confetti, cx, cy, 48);
+  shake.trigger(9, 220);
+  if (!isMuted()) sound.shot();
+  spawnSparkles(sparks, card.x, card.y, 30, ["#fff", PARTY.gold, CUTE.green, CUTE.green]);
+  spawnSparkles(sparks, card.x - 40, card.y - 40, 10, [PARTY.gold, CUTE.green]);
+  spawnSparkles(sparks, card.x + 40, card.y - 40, 10, [PARTY.gold, CUTE.green]);
+  spawnSparkles(sparks, card.x - 40, card.y + 40, 10, [PARTY.gold, CUTE.green]);
+  spawnSparkles(sparks, card.x + 40, card.y + 40, 10, [PARTY.gold, CUTE.green]);
+  if (party.combo > 0 && party.combo % 5 === 0) {
+    spawnConfetti(confetti, card.x, card.y, 44);
     if (!isMuted()) sound.fever();
   }
-  setTimeout(() => { if (state === "playing") newRound(true); }, homeRun ? 1300 : 850);
+  setTimeout(() => { if (state === "playing") newRound(); }, 780);
+}
+
+// 틀린 카드는 튕겨 나가고 잠깐 다시 못 치게 한다 — 마구 휘둘러 찍는 것을 막는다
+function missed(card) {
+  card.bad = 1;
+  const ang = Math.random() * Math.PI * 2;
+  card.vx = Math.cos(ang) * 170;
+  card.vy = Math.sin(ang) * 170;
+  party.wrong(card.x, card.y, "다시 봐요!");
+  autoDiff.reportWrong();
+  shake.trigger(6, 160);
+  if (!isMuted()) sound.wrong();
+  lockUntil = performance.now() + 550;
+  aimIdx = -1;
 }
 
 function endGame() {
@@ -381,8 +473,8 @@ function endGame() {
   }
   renderPodium({ unit: UNIT, medal, label, coins: party.coins, maxCombo: party.maxCombo, count, suffix: RECORD_SUFFIX, best });
 
-  document.getElementById("statCount").textContent = count + "루";
-  document.getElementById("statBest").textContent = best + "루";
+  document.getElementById("statCount").textContent = count + "개";
+  document.getElementById("statBest").textContent = best + "개";
   document.getElementById("statCombo").textContent = "🔥" + party.maxCombo;
 
   const shot = comboShot.captured ? comboShot : fallbackShot;
@@ -395,10 +487,10 @@ function endGame() {
   }
   document.getElementById("savePhotoBtn").onclick = async () => {
     const blob = await shot.toBlob((c, w, h) => drawPhotoOverlay(c, w, h, { title: TITLE, record: count + RECORD_SUFFIX, medal }));
-    downloadBlob(blob, `수학체육올림픽5_상자굴리기_${formatFileTimestamp()}.png`);
+    downloadBlob(blob, `수학체육올림픽5_전개도펀치_${formatFileTimestamp()}.png`);
   };
   document.getElementById("saveVideoBtn").onclick = () => {
-    if (recordedBlob) downloadBlob(recordedBlob, `수학체육올림픽5_상자굴리기_${formatFileTimestamp()}.${recorder.extension}`);
+    if (recordedBlob) downloadBlob(recordedBlob, `수학체육올림픽5_전개도펀치_${formatFileTimestamp()}.${recorder.extension}`);
   };
   document.getElementById("resultPanel").style.display = "flex";
   if (!isMuted()) sound.success();
@@ -426,115 +518,30 @@ function goReady() {
   }, 500);
 }
 
-// ── 스와이프 감지: 짧은 시간 안에 한 방향으로 크게 움직이면 한 번 구른다 ──
-function detectSwipe(now) {
-  const active = mode === "motion"
-    ? cursors.length > 0
-    : (pointerInput && pointerInput.down && pointerInput.points.length > 0);
-  if (!active) { trail = []; return; }
-  const raw = mode === "motion" ? cursors[0] : pointerInput.points[0];
-  const p = smooth.push(raw.x, raw.y);
-  trail.push({ t: now, x: p.x, y: p.y });
-  while (trail.length && now - trail[0].t > 220) trail.shift();
-  if (trail.length < 3) return;
-  if (now - lastRollAt < 420) return;               // 한 번 구른 뒤엔 잠깐 쉰다
-
-  const o = trail[0];
-  const dx = p.x - o.x, dy = p.y - o.y;
-  const thX = dims.w * 0.085, thY = dims.h * 0.10;
-  let dir = null;
-  if (Math.abs(dx) > Math.abs(dy)) { if (Math.abs(dx) > thX) dir = dx > 0 ? "right" : "left"; }
-  else if (Math.abs(dy) > thY) dir = dy > 0 ? "down" : "up";
-  if (!dir) return;
-
-  orient = roll(orient, dir);
-  rollAnim = { dir, at: now };
-  lastRollAt = now;
-  trail = []; smooth.reset();
-  if (!isMuted()) sound.pop();
-  if (goalMet()) succeed();
-}
-
-// ── 겨냥도 그리기: 앞·위·오른쪽 세 면이 보인다 ──
-function drawBox(ctx, cx, cy, size) {
-  const W = size * 1.05, H = size * 0.85, D = size * 0.42;
-  const ox = D * 0.62, oy = -D * 0.52;
-
-  // 구르는 순간 살짝 눌렸다 펴진다
-  let sx = 1, sy = 1;
-  if (rollAnim) {
-    const t = Math.min(1, (performance.now() - rollAnim.at) / 220);
-    const k = Math.sin(Math.PI * t) * 0.16;
-    if (rollAnim.dir === "left" || rollAnim.dir === "right") { sx = 1 - k; sy = 1 + k; }
-    else { sx = 1 + k; sy = 1 - k; }
-    if (t >= 1) rollAnim = null;
+// ── 펀치 판정: 카드 위에 손을 잠깐 얹으면 친다 ──
+function detectPunch(now) {
+  if (resolving || now < lockUntil) { aimIdx = -1; return; }
+  const p = cursors[0];
+  if (!p) { aimIdx = -1; return; }
+  let idx = -1;
+  for (let i = 0; i < cards.length; i++) {
+    const c = cards[i];
+    if (c.gone || c.bad > 0.3) continue;
+    if (Math.hypot(p.x - c.x, p.y - c.y) < c.r * 1.05) { idx = i; break; }
   }
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.scale(sx, sy);
-  ctx.translate(-cx, -cy);
-
-  const x0 = cx - W / 2, y0 = cy + H / 2;
-  const F = [[x0, y0], [x0 + W, y0], [x0 + W, y0 - H], [x0, y0 - H]];
-  const B = F.map(([x, y]) => [x + ox, y + oy]);
-
-  const faceFill = (i) => (i === goal.star ? PARTY.gold : LANE_COLORS[i % LANE_COLORS.length]);
-  const poly = (pts, fill) => {
-    ctx.beginPath();
-    ctx.moveTo(...pts[0]);
-    for (const p of pts.slice(1)) ctx.lineTo(...p);
-    ctx.closePath();
-    ctx.fillStyle = fill; ctx.fill();
-    ctx.strokeStyle = CUTE.ink; ctx.lineWidth = Math.max(2.5, size * 0.035); ctx.stroke();
-  };
-  const label = (pts, i, scale = 1) => {
-    const mx = pts.reduce((s, p) => s + p[0], 0) / pts.length;
-    const my = pts.reduce((s, p) => s + p[1], 0) / pts.length;
-    const fs = size * 0.34 * scale;
-    drawChunkyText(ctx, FACE_NAMES[i], mx, my, fs, "#fff",
-      { outline: CUTE.ink, outlineWidth: Math.max(3, fs * 0.2) });
-    if (i === goal.star) {
-      ctx.save();
-      ctx.font = `${size * 0.26}px sans-serif`;
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText("⭐", mx, my - size * 0.28);
-      ctx.restore();
-    }
-  };
-
-  // 오른쪽 → 위 → 앞 순으로 그려야 앞면이 위에 온다
-  const right = [F[1], F[2], B[2], B[1]];
-  const top = [F[3], F[2], B[2], B[3]];
-  poly(right, faceFill(orient.right));
-  poly(top, faceFill(orient.top));
-  poly(F, faceFill(orient.front));
-  label(right, orient.right, 0.62);   // 옆면은 좁으니 작게
-  label(top, orient.top, 0.62);       // 윗면도 눌려 보이므로 작게
-  label(F, orient.front);
-
-  // 보이지 않는 모서리 (뒤쪽 왼쪽 아래 꼭짓점에 모인다)
-  ctx.save();
-  ctx.setLineDash([5, 4]);
-  ctx.lineWidth = Math.max(1.8, size * 0.022);
-  ctx.strokeStyle = "rgba(34,48,92,0.5)";
-  ctx.beginPath();
-  ctx.moveTo(...B[0]); ctx.lineTo(...B[1]);
-  ctx.moveTo(...B[0]); ctx.lineTo(...B[3]);
-  ctx.moveTo(...B[0]); ctx.lineTo(...F[0]);
-  ctx.stroke();
-  ctx.restore();
-  ctx.restore();
-
-  // 바닥에 있는 면은 보이지 않으므로 아래에 이름표로 알려 준다
-  drawChunkyText(ctx, `바닥: ${FACE_NAMES[orient.bottom]}`, cx, cy + H / 2 + size * 0.42,
-    size * 0.24, "#fff", { outline: CUTE.ink, outlineWidth: Math.max(3, size * 0.06) });
+  if (idx !== aimIdx) { aimIdx = idx; aimSince = now; return; }
+  if (idx < 0 || now - aimSince < AIM_MS) return;
+  const card = cards[idx];
+  aimIdx = -1;
+  if (card.face === q.answer) succeed(card);
+  else missed(card);
 }
 
 // ── 전개도 (왼쪽 판) ──
 function drawNet(ctx) {
   const { w, h } = dims;
-  const px = w * 0.025, py = h * 0.34;
-  const pw = w * 0.30, ph = h * 0.50;
+  const px = w * 0.025, py = h * 0.30;
+  const pw = w * 0.30, ph = h * 0.54;
   drawStickerRect(ctx, px + pw / 2, py + ph / 2, pw, ph, fluidPx(dims, 18, { min: 12, max: 26 }), CUTE.cream, {
     lineWidth: fluidPx(dims, 4.5, { min: 3, max: 6.5 }), drop: fluidPx(dims, 5, { min: 3.5, max: 8 }),
   });
@@ -546,24 +553,58 @@ function drawNet(ctx) {
   const oy = py + ph * 0.55 - (rows * cell) / 2;
   drawChunkyText(ctx, "전개도", px + pw / 2, py + ph * 0.13,
     fluidPx(dims, 17, { min: 12, max: 23 }), CUTE.ink, { outline: CUTE.cream, outlineWidth: 3 });
+  const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 320);
   cells.forEach(([c, r], i) => {
     const x = ox + c * cell + cell / 2;
     const y = oy + r * cell + cell / 2;
-    const isStar = i === goal.star;
+    const marked = q.marks.includes(i);
     drawStickerRect(ctx, x, y, cell * 0.94, cell * 0.94, cell * 0.16,
-      isStar ? PARTY.gold : LANE_COLORS[i % LANE_COLORS.length], {
-        lineWidth: Math.max(2.2, cell * 0.07), drop: cell * 0.05,
+      marked ? PARTY.gold : LANE_COLORS[i % LANE_COLORS.length], {
+        lineWidth: Math.max(2.2, cell * (marked ? 0.10 + pulse * 0.04 : 0.07)), drop: cell * 0.05,
       });
     drawChunkyText(ctx, FACE_NAMES[i], x, y, cell * 0.4, "#fff",
       { outline: CUTE.ink, outlineWidth: Math.max(2.5, cell * 0.09) });
-    if (isStar) {
+    if (marked) {
       ctx.save();
       ctx.font = `${cell * 0.3}px sans-serif`;
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText("⭐", x + cell * 0.3, y - cell * 0.3);
+      ctx.fillText("⭐", x + cell * 0.32, y - cell * 0.32);
       ctx.restore();
     }
   });
+}
+
+// ── 떠다니는 한글 카드 ──
+function drawCards(ctx, now) {
+  for (let i = 0; i < cards.length; i++) {
+    const c = cards[i];
+    if (c.gone && c.pop <= 0) continue;
+    ctx.save();
+    let scale = 1;
+    if (c.pop > 0) scale = 1 + (1 - c.pop) * 1.4;          // 터지며 커진다
+    if (c.bad > 0) ctx.globalAlpha = 0.45 + c.bad * 0.3;
+    const wob = Math.sin(now / 460 + i) * c.r * 0.05;      // 살짝 흔들리며 떠 있다
+    ctx.globalAlpha *= c.pop > 0 ? c.pop : 1;
+    const rr = c.r * scale;
+    const color = c.bad > 0 ? CUTE.orangeDark : LANE_COLORS[c.face % LANE_COLORS.length];
+    drawStickerRect(ctx, c.x, c.y + wob, rr * 1.7, rr * 1.7, rr * 0.34, color, {
+      lineWidth: Math.max(3, rr * 0.11), drop: rr * 0.1,
+    });
+    drawChunkyText(ctx, FACE_NAMES[c.face], c.x, c.y + wob, rr * 0.86, "#fff",
+      { outline: CUTE.ink, outlineWidth: Math.max(3, rr * 0.16) });
+
+    // 조준 링 — 얼마나 더 있으면 펀치가 나가는지 보여 준다
+    if (i === aimIdx && !c.gone) {
+      const t = Math.min(1, (now - aimSince) / AIM_MS);
+      ctx.beginPath();
+      ctx.arc(c.x, c.y + wob, rr * 1.25, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * t);
+      ctx.strokeStyle = PARTY.gold;
+      ctx.lineWidth = Math.max(4, rr * 0.16);
+      ctx.lineCap = "round";
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
 }
 
 function loop(tsMs) {
@@ -591,7 +632,7 @@ function loop(tsMs) {
 
   if (state === "playing") stepGame();
 
-  for (const c of cursors) drawGloveCursor(ctx, c.x, c.y, fluidPx(dims, 44, { min: 32, max: 62 }), { active: !!rollAnim });
+  for (const c of cursors) drawGloveCursor(ctx, c.x, c.y, fluidPx(dims, 44, { min: 32, max: 62 }), { active: aimIdx >= 0 });
   ctx.restore();
 }
 
@@ -605,57 +646,26 @@ function stepGame() {
   if (remain <= 0) { endGame(); return; }
   const now = performance.now();
 
-  if (!resolving && now - roundAt > 600) detectSwipe(now);
+  updateCards(dt);
+  if (now - roundAt > 400) detectPunch(now);
 
   drawNet(ctx);
-
-  // 다이아몬드 진루 표시
-  const dx = w * 0.88, dy = h * 0.42, dr = Math.min(w * 0.055, h * 0.09);
-  const pts = [[dx, dy + dr], [dx + dr, dy], [dx, dy - dr], [dx - dr, dy]];  // 홈,1,2,3
-  ctx.save();
-  ctx.strokeStyle = "rgba(255,255,255,0.85)";
-  ctx.lineWidth = fluidPx(dims, 3, { min: 2, max: 4.5 });
-  ctx.beginPath();
-  pts.forEach((p, i) => (i === 0 ? ctx.moveTo(...p) : ctx.lineTo(...p)));
-  ctx.closePath(); ctx.stroke();
-  ctx.restore();
-  pts.forEach((p, i) => {
-    const reached = i > 0 && i <= base;
-    drawSticker(ctx, p[0], p[1], dr * 0.28, reached ? PARTY.gold : CUTE.cream, { lineWidth: 2.5 });
-  });
-  drawChunkyText(ctx, `${base}루`, dx, dy + dr * 1.9, fluidPx(dims, 15, { min: 11, max: 20 }), "#fff",
-    { outline: CUTE.ink, outlineWidth: 4 });
-
-  // 상자
-  const size = Math.min(w * 0.17, h * 0.26);
-  drawBox(ctx, w * 0.60, h * 0.58, size);
+  drawCards(ctx, now);
 
   // 네모곰
   const br = fluidPx(dims, 23, { min: 17, max: 31 });
-  drawMascot(ctx, w * 0.88, h * 0.72, br, CHAR, party.currentMood(remain));
+  drawMascot(ctx, w * 0.06, h * 0.90, br, CHAR, party.currentMood(remain));
 
-  // 조작 안내 — 상자 아래 "바닥: X" 이름표보다 더 아래에 둔다
-  drawChunkyText(ctx, mode === "motion" ? "손을 휙 휘둘러 굴려요!" : "드래그해서 굴려요!",
-    w * 0.60, h * 0.90, fluidPx(dims, 16, { min: 12, max: 22 }), "#fff",
-    { outline: CUTE.ink, outlineWidth: fluidPx(dims, 5, { min: 3.5, max: 7 }) });
-
-  // 목표 진행도 표시
-  const metCount = goal.goals.filter((g) => orient[g.pos] === g.face).length;
-  const totalCount = goal.goals.length;
-  let progressText = goal.text.replace(/[<>]/g, "");
-  if (totalCount > 1) progressText += ` (${metCount}/${totalCount})`;
-
-  const hudBottom = party.drawHud(ctx, dims, { remainMs: remain, count, suffix: "루" });
-
-  // 진행도에 따라 색상 변경
-  let progressColor = PARTY.gold;
-  if (metCount === totalCount) progressColor = CUTE.green;
-  else if (metCount > 0) progressColor = "#ffd700";
+  const hudBottom = party.drawHud(ctx, dims, { remainMs: remain, count, suffix: "개" });
 
   drawCuteBanner(ctx, dims, [
-    { text: progressText, size: 24, chunky: true, color: progressColor },
-    { text: goal.hint, size: 14, color: CUTE.ink },
+    { text: q.text.replace(/[<>]/g, ""), size: 24, chunky: true, color: PARTY.gold },
+    { text: q.hint, size: 14, color: CUTE.ink },
   ], fluidPx, { top: hudBottom });
+
+  drawChunkyText(ctx, mode === "motion" ? "정답 카드에 손을 올려요!" : "정답 카드를 눌러요!",
+    w * 0.64, h * 0.94, fluidPx(dims, 16, { min: 12, max: 22 }), "#fff",
+    { outline: CUTE.ink, outlineWidth: fluidPx(dims, 5, { min: 3.5, max: 7 }) });
 
   party.update(dt);
   confetti = updateConfetti(confetti, dt); drawConfetti(ctx, confetti);
