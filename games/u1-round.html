@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>어림 게이트 · 종목 1</title>
+<title>숫자 골 넣기 · 종목 1</title>
 <link rel="stylesheet" href="../css/style.css?v=6">
 </head>
 <body>
@@ -18,7 +18,7 @@
   </div>
 
   <div class="overlay-panel" id="loadingPanel">
-    <h2>🚪 어림 게이트</h2>
+    <h2>⚽ 숫자 골 넣기</h2>
     <p id="loadingText">준비 중…</p>
   </div>
 
@@ -28,7 +28,7 @@
         <div class="rule-char">🐰</div>
         <div>
           <div class="rule-name">깡총이</div>
-          <h2 class="rule-title">어림 게이트</h2>
+          <h2 class="rule-title">숫자 골 넣기</h2>
         </div>
       </div>
       <p class="rule-cheer"></p>
@@ -39,8 +39,8 @@
   </div>
 
   <div class="overlay-panel" id="raisePanel" style="display:none">
-    <div class="raise-icon" id="raiseIcon">🙌</div>
-    <h2 id="raiseText">두 손을 들어 주세요!</h2>
+    <div class="raise-icon" id="raiseIcon">🙋</div>
+    <h2 id="raiseText">손을 들어 주세요!</h2>
     <div class="hold-bar"><div class="hold-fill" id="holdFill"></div></div>
   </div>
 
@@ -55,8 +55,8 @@
   <div class="overlay-panel" id="resultPanel" style="display:none">
     <div id="podium"></div>
     <div class="result-stats">
-      <div class="stat-box"><div class="num" id="statCount">0개</div><div class="label">바르게 처리</div></div>
-      <div class="stat-box"><div class="num" id="statBest">0개</div><div class="label">최고 기록</div></div>
+      <div class="stat-box"><div class="num" id="statCount">0골</div><div class="label">성공한 골</div></div>
+      <div class="stat-box"><div class="num" id="statBest">0골</div><div class="label">최고 기록</div></div>
       <div class="stat-box"><div class="num" id="statCombo">0</div><div class="label">최고 콤보</div></div>
     </div>
     <video class="preview" id="previewVideo" controls playsinline style="display:none"></video>
@@ -81,21 +81,20 @@ import {
   drawVignette, spawnConfetti, updateConfetti, drawConfetti,
 } from "../js/engine.js?v=3";
 import {
-  CUTE, bob, drawSticker, drawStickerRect, drawChunkyText,
+  CUTE, LANE_COLORS, bob, drawSticker, drawStickerRect, drawChunkyText,
   spawnSparkles, updateSparkles, drawSparkles, makeDrifters, drawDrifters,
   drawBunting, drawGloveCursor, drawLevelStars, drawCuteBanner,
 } from "../js/cute.js?v=6";
 import {
-  PARTY, CHARACTERS, Party, HandPair, drawTwoHandHint,
-  drawPartyBackdrop, drawCrowd, drawMascot,
+  PARTY, CHARACTERS, Party, drawPartyBackdrop, drawCrowd, drawMascot,
   showRuleCard, renderPodium, irisTransition,
 } from "../js/party.js?v=2";
 requestWakeLock();
 
 const UNIT = "f1";
-const TITLE = "어림 게이트";
-const RECORD_SUFFIX = "개 처리";
-const MEDALS = { bronze: 10, silver: 18, gold: 26 };
+const TITLE = "숫자 골 넣기";
+const RECORD_SUFFIX = "골";
+const MEDALS = { bronze: 5, silver: 9, gold: 13 };
 const CHAR = CHARACTERS[UNIT];
 const mode = InputMode.get();
 
@@ -106,13 +105,13 @@ let drifters = makeDrifters(10, dims.w, dims.h);
 window.addEventListener("resize", () => {
   dims = fitCanvasToScreen(canvas);
   drifters = makeDrifters(10, dims.w, dims.h);
+  if (round) layoutGates();
 });
 
 const sound = new SoundKit();
 const bgm = new FileAudioLoop("../assets/sounds/subbgm.mp3", 0.32);
 const isMuted = () => localStorage.getItem("smo_muted") === "1";
 const party = new Party({ unit: UNIT, sound, isMuted });
-const hands = new HandPair();
 
 function goHome() { bgm.stop(); irisTransition(() => { location.href = "../index.html"; }); }
 document.getElementById("homeBtn").addEventListener("click", goHome);
@@ -122,86 +121,56 @@ function randInt(min, max) { return min + Math.floor(Math.random() * (max - min 
 function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 
 // ---------------------------------------------------------------------------
-// 조건 만들기 — 조건은 곧 "수직선 위의 한 구간"이다.
-// 학생은 그 구간을 두 손으로 만들어야 하므로, 조건마다 정답 구간 [lo, hi]를 함께 들고 다닌다.
+// 골문 만들기 — 골문들은 수직선을 빈틈없이 나눠 가지므로,
+// 어떤 수가 내려와도 들어갈 곳이 정확히 하나다. "어디에도 못 넣는" 일이 없다.
 // ---------------------------------------------------------------------------
-const PLACES = { 10: "십의 자리", 100: "백의 자리" };
-
-// 정답 범위 vs 학생 범위의 교집합/합집합 비율 (Jaccard Index)
-// 범위가 정확할수록 1.0에 가깝고, 작거나 크면 감점한다
-function computeRangeAccuracy(studLo, studHi, correctLo, correctHi) {
-  if (studLo === null || studHi === null) return 0;
-  const inter = Math.max(0, Math.min(studHi, correctHi) - Math.max(studLo, correctLo));
-  const union = (studHi - studLo) + (correctHi - correctLo) - inter;
-  if (union <= 0) return 0;
-  return Math.min(1.0, inter / union);
-}
-
-function genCondition(level) {
+function genRound(level) {
   if (level === 1) {
-    // 이상 / 이하 / 초과 / 미만 — 정수 눈금이라 경계 포함 여부가 그대로 구간 끝이 된다
-    const scale = { vMin: 0, vMax: 60, snap: 1, tick: 5, labelEvery: 10 };
-    const a = randInt(8, 26), b = a + randInt(10, 22);
-    const lowIncl = Math.random() < 0.5;
-    const highIncl = Math.random() < 0.5;
-    const lo = lowIncl ? a : a + 1;
-    const hi = highIncl ? b : b - 1;
+    // 이상·이하·초과·미만 — 경계를 포함하는지가 곧 정답을 가른다
+    const t = randInt(15, 45);
+    const incl = Math.random() < 0.5;
+    const gates = incl
+      ? [{ label: `${t} 이하`, test: (n) => n <= t }, { label: `${t} 초과`, test: (n) => n > t }]
+      : [{ label: `${t} 미만`, test: (n) => n < t }, { label: `${t} 이상`, test: (n) => n >= t }];
+    // 경계 근처 수를 자주 내보내야 이상/초과의 차이를 실제로 쓰게 된다
+    const n = Math.max(1, t + randInt(-5, 5));
     return {
-      ...scale, lo, hi,
-      text: `${a} ${lowIncl ? "이상" : "초과"} ${b} ${highIncl ? "이하" : "미만"}인 수`,
-      hint: "이상·이하는 그 수를 포함! 초과·미만은 포함하지 않아요",
+      n, gates, fallMs: 5000,
+      title: "숫자를 알맞은 골문에 넣어요!",
+      hint: incl ? "이하는 그 수를 포함해요. 초과는 포함하지 않아요" : "미만은 그 수를 포함하지 않아요. 이상은 포함해요",
     };
   }
   if (level === 2) {
-    // 올림 / 버림 — 문 폭을 딱 맞추는 것이 곧 개념
-    const op = Math.random() < 0.5 ? "올림" : "버림";
-    const p = Math.random() < 0.5 ? 10 : 100;
-    const scale = p === 10
-      ? { vMin: 100, vMax: 400, snap: 1, tick: 10, labelEvery: 50 }
-      : { vMin: 0, vMax: 1000, snap: 10, tick: 50, labelEvery: 200 };
-    const target = p === 10 ? randInt(13, 38) * 10 : randInt(2, 9) * 100;
-    // 올림해서 target이 되는 수: (target-p, target]  /  버림해서 target이 되는 수: [target, target+p)
-    const lo = op === "올림" ? target - p + 1 : target;
-    const hi = op === "올림" ? target : target + p - 1;
+    // 올림 / 버림 — 십의 자리까지
+    const up = Math.random() < 0.5;
+    const base = randInt(1, 4) * 10;                 // 골문 3개의 시작값
+    const vals = [base + 10, base + 20, base + 30];
+    const gates = vals.map((v) => ({
+      label: `${up ? "올림" : "버림"} → ${v}`,
+      test: (n) => (up ? Math.ceil(n / 10) * 10 : Math.floor(n / 10) * 10) === v,
+    }));
+    // 세 골문 중 하나에 반드시 들어가는 수를 고른다
+    const pick = vals[randInt(0, 2)];
+    const n = up ? randInt(pick - 9, pick) : randInt(pick, pick + 9);
     return {
-      ...scale, lo, hi,
-      text: `${op}하여 ${PLACES[p]}까지 나타내면 ${target}이 되는 수`,
-      hint: op === "올림" ? "남은 자리가 0이 아니면 무조건 올려요" : "남은 자리는 무조건 버려요",
+      n, gates, fallMs: 4600,
+      title: `${up ? "올림" : "버림"}하여 십의 자리까지!`,
+      hint: up ? "남은 자리가 0이 아니면 무조건 올려요" : "남은 자리는 무조건 버려요",
     };
   }
-  // ⭐3 반올림 — 정답 구간이 target을 가운데 두고 양쪽으로 절반씩 벌어진다
-  const p = 100;
-  const target = randInt(2, 9) * 100;
+  // ⭐3 반올림 — 골문 4개
+  const vals = [10, 20, 30, 40];
+  const gates = vals.map((v) => ({
+    label: `반올림 → ${v}`,
+    test: (n) => Math.round(n / 10) * 10 === v,
+  }));
+  const pick = vals[randInt(0, 3)];
+  const n = randInt(Math.max(5, pick - 5), pick + 4);
   return {
-    vMin: 0, vMax: 1000, snap: 10, tick: 50, labelEvery: 200,
-    lo: target - p / 2, hi: target + p / 2 - 1,
-    text: `반올림하여 ${PLACES[p]}까지 나타내면 ${target}이 되는 수`,
+    n, gates, fallMs: 4200,
+    title: "반올림하여 십의 자리까지!",
     hint: "바로 아래 자리가 5보다 작으면 버리고, 5이거나 크면 올려요",
   };
-}
-
-// 한 조건마다 카드 한 묶음 — 정답 수와 오답 수를 섞고, 오답은 경계 바로 바깥에 몰아둔다
-function genCards(cond, n) {
-  const out = [];
-  const inside = () => randInt(cond.lo, cond.hi);
-  const outside = () => {
-    for (let i = 0; i < 80; i++) {
-      // 경계 바로 바깥(±1~2칸)이 대부분이라 찍어서는 못 맞힌다
-      const near = Math.random() < 0.7;
-      const v = near
-        ? (Math.random() < 0.5 ? cond.lo - randInt(1, 2) * cond.snap : cond.hi + randInt(1, 2) * cond.snap)
-        : randInt(cond.vMin, cond.vMax);
-      if (v < cond.vMin || v > cond.vMax) continue;
-      if (v >= cond.lo && v <= cond.hi) continue;
-      return Math.round(v / cond.snap) * cond.snap;
-    }
-    return cond.vMax;
-  };
-  for (let i = 0; i < n; i++) {
-    const good = i % 2 === 0;
-    out.push({ v: good ? inside() : outside(), good });
-  }
-  return shuffle(out);
 }
 
 const handTracker = new HandTracker();
@@ -218,7 +187,7 @@ async function init() {
       return;
     }
     document.getElementById("loadingText").textContent = "AI 모델을 불러오는 중…";
-    await handTracker.init(2);
+    await handTracker.init(1);
   } else {
     pointerInput = new PointerInput(canvas);
   }
@@ -226,21 +195,19 @@ async function init() {
 
   await showRuleCard({
     unit: UNIT,
-    title: "어림 게이트",
+    title: "숫자 골 넣기",
     lines: [
+      "위에서 <b>숫자 공</b>이 하나 내려와요. 아래에는 <b>골문</b>이 여러 개 있어요.",
       mode === "motion"
-        ? "<b>양손을 벌리면</b> 그 사이가 문이 돼요. 손 위치가 곧 문기둥이에요."
-        : mode === "touch"
-          ? "<b>두 손가락</b>으로 문기둥을 하나씩 잡고 벌려요."
-          : "문기둥을 <b>드래그</b>해서 옮겨요.",
-      "조건에 맞는 수는 <b>문 안으로 통과</b>, 아닌 수는 <b>막아내요.</b> 둘 다 점수예요!",
-      "<b>문의 폭이 정확할수록 높은 점수!</b> 너무 크거나 작으면 점수가 낮아져요. 조건과 <b>정확히 같은 폭</b>일 때 만점이에요.",
-      "문 위에 <b>지금 만든 범위</b>가 숫자로 계속 보여요. 그걸 보고 정확히 맞추세요!",
+        ? "<b>손을 좌우로 움직이면</b> 공이 따라와요. 조건에 맞는 골문으로 넣으세요!"
+        : "<b>화면에서 좌우로 움직이면</b> 공이 따라와요. 조건에 맞는 골문으로 넣으세요!",
+      "골문마다 <b>수의 범위 조건</b>이 붙어 있어요. 공의 수가 어디에 들어가는지 판단해요.",
+      "⭐1 <b>이상·이하·초과·미만</b> → ⭐2 <b>올림·버림</b> → ⭐3 <b>반올림</b>",
     ],
   });
 
-  document.getElementById("raiseIcon").textContent = mode === "motion" ? "🙌" : "👆";
-  document.getElementById("raiseText").textContent = mode === "motion" ? "두 손을 들어 주세요!" : "화면을 터치(클릭)하면 시작!";
+  document.getElementById("raiseIcon").textContent = mode === "motion" ? "🙋" : "👆";
+  document.getElementById("raiseText").textContent = mode === "motion" ? "손을 들어 주세요!" : "화면을 터치(클릭)하면 시작!";
   document.getElementById("raisePanel").style.display = "flex";
   state = "raise";
   requestAnimationFrame(loop);
@@ -251,9 +218,8 @@ const holdFill = document.getElementById("holdFill");
 const startGate = new StartGate(mode, holdFill);
 
 let autoDiff, count, playEndAt;
-let cond, cards, nextSpawnAt, waveLeft;
-let gateLo = null, gateHi = null;       // 지금 만든 구간 (값)
-let grabbed = null;                     // 마우스/한손가락으로 잡은 기둥
+let round = null, gates = [], ball = null, roundAt, resolving;
+let netShake = 0, judgedIdx = -1, judgedOk = false;
 let confetti = [], sparks = [];
 const shake = new ScreenShake();
 let recorder, comboShot, fallbackShot, autoRec, recordedBlob = null;
@@ -261,23 +227,30 @@ const recIndicator = document.getElementById("recIndicator");
 let cursors = [];
 let lastFrameAt = 0;
 
-const GY = () => dims.h * 0.76;                 // 문이 서 있는 바닥선
-// 카드는 문제 배너 아래에서 나타나야 한다 — 더 위에서 떨어뜨리면 절반을 배너에 가려 안 보인다
-const TOPY = () => dims.h * 0.37;
-const X0 = () => dims.w * 0.07;
-const X1 = () => dims.w * 0.93;
-const vToX = (v) => X0() + ((v - cond.vMin) / (cond.vMax - cond.vMin)) * (X1() - X0());
-const xToV = (x) => cond.vMin + ((x - X0()) / (X1() - X0())) * (cond.vMax - cond.vMin);
-const snapV = (v) => Math.round(Math.max(cond.vMin, Math.min(cond.vMax, v)) / cond.snap) * cond.snap;
-const fallMs = () => [3800, 3200, 2700][autoDiff.level - 1];
+// 골문이 놓이는 줄 — 공이 이 높이에 닿으면 판정한다
+function goalLineY() { return dims.h * 0.76; }
+// 공이 나오는 높이 — 문제 배너에 가리면 숫자를 못 읽으므로 그 아래에서 시작한다
+function ballStartY() { return dims.h * 0.36; }
 
-function newWave() {
-  cond = genCondition(autoDiff.level);
-  cards = [];
-  waveLeft = 6;
-  nextSpawnAt = performance.now() + 700;
-  // 새 조건이 나오면 기존 문 폭은 유지하되 값만 새 눈금에 맞춘다
-  gateLo = null; gateHi = null;
+function layoutGates() {
+  const { w } = dims;
+  const n = round.gates.length;
+  const fieldX = w * 0.04, fieldW = w * 0.92;
+  const gw = fieldW / n;
+  gates = round.gates.map((g, i) => ({
+    ...g,
+    x: fieldX + gw * i + gw / 2,
+    w: gw * 0.94,
+  }));
+}
+
+function newRound() {
+  round = genRound(autoDiff.level);
+  layoutGates();
+  ball = { n: round.n, x: dims.w / 2, y: ballStartY(), r: 0 };
+  resolving = false;
+  judgedIdx = -1;
+  roundAt = performance.now();
 }
 
 function startCountdown() {
@@ -307,11 +280,10 @@ function beginPlay() {
   autoDiff = new AutoDifficulty(levelFromUrl(AutoDifficulty.startLevelFromHighScore(prev)));
   count = 0;
   party.reset();
-  hands.reset();
   confetti = []; sparks = [];
   playEndAt = performance.now() + 60000;
   lastFrameAt = 0;
-  newWave();
+  newRound();
 
   recorder = new ClipRecorder(canvas, sound, 24);
   recorder.prepare();
@@ -328,42 +300,43 @@ function beginPlay() {
   });
 }
 
-// 카드가 문 높이에 닿았을 때의 판정
-//
-// 통과시킨 것뿐 아니라 **잘 막아낸 것도 점수**로 친다. 범위가 정확할수록 높은 점수를 준다.
-// 범위가 너무 크거나 작으면 일부 카드를 놓치거나 들여보내게 되어 자동으로 감점된다.
-// 결국 조건과 정확히 같은 폭으로 만들어야 최고 점수를 받는다.
-function resolveCard(c) {
-  c.done = true;
-  const passed = gateLo !== null && c.v >= gateLo && c.v <= gateHi;
-  const x = vToX(c.v);
-  const py = GY() - fluidPx(dims, 70, { min: 50, max: 100 });
+function judge() {
+  resolving = true;
+  // 골문이 수직선을 빈틈없이 나눠 가지므로 가장 가까운 골문이 곧 들어간 골문이다
+  let idx = 0, bestD = Infinity;
+  for (let i = 0; i < gates.length; i++) {
+    const d = Math.abs(ball.x - gates[i].x);
+    if (d < bestD) { bestD = d; idx = i; }
+  }
+  judgedIdx = idx;
+  const g = gates[idx];
+  const ok = g.test(ball.n);
+  judgedOk = ok;
+  netShake = 1;
 
-  if (c.good === passed) {
+  if (ok) {
     count++;
-    c.result = c.good ? "ok" : "blocked";
-
-    // 범위 정확도에 따라 점수 계산: 정확할수록 높음
-    const rangeAccuracy = computeRangeAccuracy(gateLo, gateHi, cond.lo, cond.hi);
-    const basePoints = c.good ? 10 : 7;
-    const finalPoints = Math.round(basePoints * rangeAccuracy);
-
-    party.correct(x, py, { base: finalPoints, elapsedMs: 2500 });
+    party.correct(g.x, goalLineY(), { base: 11, elapsedMs: performance.now() - roundAt });
     if (party.combo > 0 && party.combo === party.maxCombo) comboShot.capture(canvas);
     autoDiff.reportCorrect();
     autoRec.trigger();
-    spawnSparkles(sparks, x, GY(), c.good ? 18 : 10, ["#fff", PARTY.gold, CUTE.green]);
-    if (c.good) spawnConfetti(confetti, x, GY(), 18);
-  } else if (passed) {
-    c.result = "leak";                       // 들어오면 안 되는 수를 들여보냈다
-    party.wrong(x, py, "조건 밖이에요!");
-    autoDiff.reportWrong();
-    shake.trigger(5, 160);
+    shake.trigger(9, 220);
+    if (!isMuted()) sound.hit("perfect");
+    spawnSparkles(sparks, g.x, goalLineY(), 30, ["#fff", PARTY.gold, CUTE.green, CUTE.green]);
+    spawnSparkles(sparks, g.x - 50, goalLineY() - 20, 12, [PARTY.gold, CUTE.green]);
+    spawnSparkles(sparks, g.x + 50, goalLineY() - 20, 12, [PARTY.gold, CUTE.green]);
+    if (party.combo > 0 && party.combo % 5 === 0) {
+      spawnConfetti(confetti, g.x, goalLineY() - 60, 44);
+      if (!isMuted()) sound.fever();
+    }
   } else {
-    c.result = "miss";                       // 받아야 할 수를 놓쳤다
-    party.wrong(x, py, "놓쳤어요!");
+    party.wrong(g.x, goalLineY(), "조건을 다시 봐요!");
     autoDiff.reportWrong();
+    shake.trigger(6, 170);
+    if (!isMuted()) sound.wrong();
+    spawnSparkles(sparks, g.x, goalLineY(), 12, [CUTE.orangeDark, "#fff"]);
   }
+  setTimeout(() => { if (state === "playing") newRound(); }, 1100);
 }
 
 function endGame() {
@@ -376,8 +349,8 @@ function endGame() {
   }
   renderPodium({ unit: UNIT, medal, label, coins: party.coins, maxCombo: party.maxCombo, count, suffix: RECORD_SUFFIX, best });
 
-  document.getElementById("statCount").textContent = count + "개";
-  document.getElementById("statBest").textContent = best + "개";
+  document.getElementById("statCount").textContent = count + "골";
+  document.getElementById("statBest").textContent = best + "골";
   document.getElementById("statCombo").textContent = "🔥" + party.maxCombo;
 
   const shot = comboShot.captured ? comboShot : fallbackShot;
@@ -390,10 +363,10 @@ function endGame() {
   }
   document.getElementById("savePhotoBtn").onclick = async () => {
     const blob = await shot.toBlob((c, w, h) => drawPhotoOverlay(c, w, h, { title: TITLE, record: count + RECORD_SUFFIX, medal }));
-    downloadBlob(blob, `수학체육올림픽5_어림게이트_${formatFileTimestamp()}.png`);
+    downloadBlob(blob, `수학체육올림픽5_숫자골넣기_${formatFileTimestamp()}.png`);
   };
   document.getElementById("saveVideoBtn").onclick = () => {
-    if (recordedBlob) downloadBlob(recordedBlob, `수학체육올림픽5_어림게이트_${formatFileTimestamp()}.${recorder.extension}`);
+    if (recordedBlob) downloadBlob(recordedBlob, `수학체육올림픽5_숫자골넣기_${formatFileTimestamp()}.${recorder.extension}`);
   };
   document.getElementById("resultPanel").style.display = "flex";
   if (!isMuted()) sound.success();
@@ -421,6 +394,70 @@ function goReady() {
   }, 500);
 }
 
+// ── 골문 ──
+function drawGates(ctx, now) {
+  const { w, h } = dims;
+  const gy = goalLineY();
+  const gh = h * 0.15;
+  for (let i = 0; i < gates.length; i++) {
+    const g = gates[i];
+    const judged = i === judgedIdx;
+    const shakeX = judged && netShake > 0 ? Math.sin(now / 24) * netShake * 5 : 0;
+
+    ctx.save();
+    ctx.translate(shakeX, 0);
+    // 골대 그물
+    ctx.fillStyle = judged
+      ? (judgedOk ? "rgba(81,207,102,0.32)" : "rgba(255,140,90,0.30)")
+      : "rgba(255,255,255,0.20)";
+    ctx.fillRect(g.x - g.w / 2, gy, g.w, gh);
+    ctx.strokeStyle = "rgba(255,255,255,0.75)";
+    ctx.lineWidth = 1.5;
+    const step = Math.max(10, g.w / 9);
+    ctx.beginPath();
+    for (let x = g.x - g.w / 2; x <= g.x + g.w / 2 + 0.5; x += step) { ctx.moveTo(x, gy); ctx.lineTo(x, gy + gh); }
+    for (let y = gy; y <= gy + gh + 0.5; y += step) { ctx.moveTo(g.x - g.w / 2, y); ctx.lineTo(g.x + g.w / 2, y); }
+    ctx.stroke();
+    // 골대 기둥
+    ctx.strokeStyle = judged ? (judgedOk ? CUTE.greenDark : CUTE.orangeDark) : "#fff";
+    ctx.lineWidth = fluidPx(dims, 6, { min: 4, max: 9 });
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(g.x - g.w / 2, gy + gh); ctx.lineTo(g.x - g.w / 2, gy);
+    ctx.lineTo(g.x + g.w / 2, gy); ctx.lineTo(g.x + g.w / 2, gy + gh);
+    ctx.stroke();
+    ctx.restore();
+
+    // 조건 표지판
+    const fs = Math.min(fluidPx(dims, 19, { min: 13, max: 26 }), g.w * 0.17);
+    drawStickerRect(ctx, g.x, gy - fs * 1.5, g.w * 0.96, fs * 2.1, fs * 0.5,
+      judged ? (judgedOk ? CUTE.green : CUTE.orangeDark) : LANE_COLORS[i % LANE_COLORS.length],
+      { lineWidth: Math.max(2.5, fs * 0.16), drop: fs * 0.2 });
+    drawChunkyText(ctx, g.label, g.x, gy - fs * 1.5, fs, "#fff",
+      { outline: CUTE.ink, outlineWidth: Math.max(2.5, fs * 0.2) });
+  }
+}
+
+// ── 숫자 공 ──
+function drawBall(ctx, now) {
+  const r = fluidPx(dims, 34, { min: 24, max: 48 });
+  ball.r = r;
+  const squash = resolving ? 1 + Math.sin(Math.min(1, (now - roundAt) / 200) * Math.PI) * 0.1 : 1;
+  drawSticker(ctx, ball.x, ball.y, r * squash, judgedIdx >= 0 ? (judgedOk ? CUTE.green : CUTE.orangeDark) : CUTE.cream,
+    { lineWidth: Math.max(3, r * 0.14) });
+  drawChunkyText(ctx, String(ball.n), ball.x, ball.y, r * 0.95, CUTE.ink,
+    { outline: "#fff", outlineWidth: Math.max(3, r * 0.18) });
+
+  // 어느 골문으로 향하는지 바닥에 그림자로 알려 준다
+  ctx.save();
+  ctx.globalAlpha = 0.25;
+  ctx.fillStyle = CUTE.ink;
+  ctx.beginPath();
+  ctx.ellipse(ball.x, goalLineY() - 6, r * 0.8, r * 0.22, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
 function loop(tsMs) {
   requestAnimationFrame(loop);
   if (mode === "motion" && video.readyState < 2) return;
@@ -437,57 +474,17 @@ function loop(tsMs) {
   if (mode === "motion") {
     result = handTracker.detect(video, tsMs);
     if (state === "raise") {
-      // 양손 종목이므로 시작도 두 손을 들어야 한다 — 첫 동작부터 "두 손 게임"임을 알린다
-      let raised = 0;
-      if (result && result.landmarks) for (const lm of result.landmarks) if (isHandRaised(lm)) raised++;
-      if (startGate.update(tsMs, raised >= 2)) goReady();
+      let raised = false;
+      if (result && result.landmarks) for (const lm of result.landmarks) if (isHandRaised(lm)) raised = true;
+      if (startGate.update(tsMs, raised)) goReady();
     }
   }
   cursors = getCursors(mode, result, w, h, video, pointerInput);
-  hands.update(cursors);
 
   if (state === "playing") stepGame();
 
-  for (const c of cursors) drawGloveCursor(ctx, c.x, c.y, fluidPx(dims, 42, { min: 30, max: 58 }), { active: gateLo !== null });
+  for (const c of cursors) drawGloveCursor(ctx, c.x, c.y, fluidPx(dims, 44, { min: 32, max: 62 }), { active: !resolving });
   ctx.restore();
-}
-
-// ── 입력: 두 손(또는 두 손가락) x 위치가 그대로 문기둥이 된다 ──────────────
-function updateGate() {
-  const lox = X0(), hix = X1();
-  const clamp = (x) => Math.max(lox, Math.min(hix, x));
-
-  if (mode === "motion") {
-    if (hands.both) {
-      gateLo = snapV(xToV(clamp(hands.left.x)));
-      gateHi = snapV(xToV(clamp(hands.right.x)));
-    }
-    return;
-  }
-
-  const pts = pointerInput ? pointerInput.points : [];
-  if (pts.length >= 2) {
-    const s = [...pts].sort((a, b) => a.x - b.x);
-    gateLo = snapV(xToV(clamp(s[0].x)));
-    gateHi = snapV(xToV(clamp(s[s.length - 1].x)));
-    grabbed = null;
-    return;
-  }
-  if (pts.length === 1) {
-    // 손가락(마우스)이 하나면 가까운 기둥을 잡아 옮긴다
-    if (gateLo === null) {
-      const c = snapV(xToV(clamp(pts[0].x)));
-      const span = (cond.vMax - cond.vMin) * 0.12;
-      gateLo = snapV(c - span); gateHi = snapV(c + span);
-      return;
-    }
-    if (!pointerInput.down) { grabbed = null; return; }
-    if (!grabbed) {
-      grabbed = Math.abs(pts[0].x - vToX(gateLo)) <= Math.abs(pts[0].x - vToX(gateHi)) ? "lo" : "hi";
-    }
-    const v = snapV(xToV(clamp(pts[0].x)));
-    if (grabbed === "lo") gateLo = Math.min(v, gateHi); else gateHi = Math.max(v, gateLo);
-  }
 }
 
 function stepGame() {
@@ -500,123 +497,38 @@ function stepGame() {
   if (remain <= 0) { endGame(); return; }
   const now = performance.now();
 
-  updateGate();
-  if (gateLo !== null && gateLo > gateHi) { const t = gateLo; gateLo = gateHi; gateHi = t; }
-
-  // 카드 등장
-  if (waveLeft > 0 && now >= nextSpawnAt) {
-    const batch = genCards(cond, 1);
-    cards.push({ ...batch[0], born: now, done: false });
-    waveLeft--;
-    nextSpawnAt = now + (autoDiff.level === 3 ? 720 : 900);
-  }
-  // 한 묶음을 다 처리했으면 다음 조건으로
-  if (waveLeft === 0 && cards.every((c) => c.done) && cards.length > 0) {
-    if (!cards.pendingSwap) {
-      cards.pendingSwap = true;
-      setTimeout(() => { if (state === "playing") newWave(); }, 650);
+  if (!resolving) {
+    // 손을 따라 좌우로 — 급하게 튀지 않도록 부드럽게 따라붙는다
+    const p = cursors[0];
+    if (p) {
+      const margin = ball.r || dims.w * 0.04;
+      const target = Math.max(margin, Math.min(w - margin, p.x));
+      ball.x += (target - ball.x) * Math.min(1, dt * 9);
     }
+    // 일정한 속도로 내려온다
+    const startY = ballStartY();
+    ball.y = startY + (goalLineY() - startY) * Math.min(1, (now - roundAt) / round.fallMs);
+    if (ball.y >= goalLineY() - 1) judge();
   }
+  if (netShake > 0) netShake = Math.max(0, netShake - dt * 2.2);
 
-  const gy = GY(), topy = TOPY();
-  for (const c of cards) {
-    if (c.done) continue;
-    const t = (now - c.born) / fallMs();
-    c.y = topy + (gy - topy) * t;
-    if (t >= 1) resolveCard(c);
-  }
+  drawGates(ctx, now);
+  drawBall(ctx, now);
 
-  // ── 그리기 ──────────────────────────────────────────────
-  // 바닥(수직선)
-  ctx.save();
-  ctx.fillStyle = "rgba(140,233,154,0.42)";
-  ctx.fillRect(0, gy, w, h - gy);
-  ctx.strokeStyle = CUTE.ink;
-  ctx.lineWidth = fluidPx(dims, 4, { min: 3, max: 6 });
-  ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(w, gy); ctx.stroke();
-  // 눈금과 숫자 — 손을 어디에 둘지 판단하는 유일한 근거이므로 진하게 그린다
-  const labelSize = fluidPx(dims, 14, { min: 10, max: 19 });
-  for (let v = cond.vMin; v <= cond.vMax + 1e-9; v += cond.tick) {
-    const x = vToX(v);
-    const isLabel = Math.abs(v % cond.labelEvery) < 1e-9;
-    ctx.beginPath();
-    ctx.moveTo(x, gy);
-    ctx.lineTo(x, gy + (isLabel ? fluidPx(dims, 15, { min: 11, max: 21 }) : fluidPx(dims, 8, { min: 6, max: 11 })));
-    ctx.lineWidth = isLabel ? fluidPx(dims, 3, { min: 2.2, max: 4.5 }) : fluidPx(dims, 1.8, { min: 1.2, max: 2.6 });
-    ctx.strokeStyle = CUTE.ink;
-    ctx.stroke();
-    if (isLabel) {
-      ctx.fillStyle = CUTE.ink;
-      ctx.font = `900 ${labelSize}px sans-serif`;
-      ctx.textAlign = "center"; ctx.textBaseline = "top";
-      ctx.fillText(String(Math.round(v)), x, gy + fluidPx(dims, 19, { min: 14, max: 25 }));
-    }
-  }
-  ctx.restore();
+  // 깡총이
+  const br = fluidPx(dims, 22, { min: 16, max: 30 });
+  drawMascot(ctx, w * 0.95, h * 0.40, br, CHAR, party.currentMood(remain));
 
-  // 문 (두 기둥 + 위쪽 들보)
-  const postW = fluidPx(dims, 16, { min: 12, max: 24 });
-  const postH = fluidPx(dims, 110, { min: 78, max: 150 });
-  if (gateLo !== null) {
-    const lx = vToX(gateLo), hx = vToX(gateHi);
-    // 문 안쪽을 밝게 칠해 "여기가 내가 만든 범위"임을 한눈에 보이게
-    ctx.save();
-    const g = ctx.createLinearGradient(0, gy - postH, 0, gy);
-    g.addColorStop(0, "rgba(255,207,63,0.10)");
-    g.addColorStop(1, "rgba(255,207,63,0.42)");
-    ctx.fillStyle = g;
-    ctx.fillRect(lx, gy - postH, hx - lx, postH);
-    ctx.restore();
+  const hudBottom = party.drawHud(ctx, dims, { remainMs: remain, count, suffix: "골" });
 
-    for (const [x, v] of [[lx, gateLo], [hx, gateHi]]) {
-      drawStickerRect(ctx, x, gy - postH / 2, postW, postH, postW * 0.4, CUTE.red, {
-        lineWidth: fluidPx(dims, 3.5, { min: 2.5, max: 5 }), drop: 3,
-      });
-      drawChunkyText(ctx, String(v), x, gy - postH - fluidPx(dims, 14, { min: 10, max: 19 }),
-        fluidPx(dims, 20, { min: 14, max: 26 }), "#fff",
-        { outline: CUTE.ink, outlineWidth: fluidPx(dims, 5, { min: 3.5, max: 7 }) });
-    }
-    // 들보 + 지금 만든 범위 표시
-    drawStickerRect(ctx, (lx + hx) / 2, gy - postH, Math.max(postW, hx - lx), postW * 0.85, postW * 0.35, CUTE.redDark, {
-      lineWidth: fluidPx(dims, 3, { min: 2, max: 4.5 }), drop: 2,
-    });
-    drawChunkyText(ctx, `내 문: ${gateLo} ~ ${gateHi}`, (lx + hx) / 2, gy - postH - fluidPx(dims, 40, { min: 28, max: 55 }),
-      fluidPx(dims, 19, { min: 14, max: 25 }), PARTY.gold,
-      { outline: CUTE.ink, outlineWidth: fluidPx(dims, 5, { min: 3.5, max: 7 }) });
-  }
-
-  // 떨어지는 수 카드
-  const cw = fluidPx(dims, 62, { min: 46, max: 88 });
-  const ch = fluidPx(dims, 40, { min: 30, max: 56 });
-  for (const c of cards) {
-    if (c.done) {
-      // 결과가 잠깐 남아 왜 그렇게 됐는지 보이게 한다
-      if (now - c.born > fallMs() + 700) continue;
-      const x = vToX(c.v);
-      const col = c.result === "ok" ? CUTE.green : c.result === "blocked" ? CUTE.cream : CUTE.red;
-      drawStickerRect(ctx, x, gy - ch * 0.6, cw, ch, ch * 0.3, col, { lineWidth: 3.5, drop: 3 });
-      drawChunkyText(ctx, String(c.v), x, gy - ch * 0.6, ch * 0.56,
-        col === CUTE.cream ? CUTE.ink : "#fff", { outline: col === CUTE.cream ? "#fff" : CUTE.ink, outlineWidth: 3.5 });
-      continue;
-    }
-    const x = vToX(c.v);
-    drawStickerRect(ctx, x, c.y, cw, ch, ch * 0.3, CUTE.cream, {
-      lineWidth: fluidPx(dims, 4, { min: 3, max: 6 }), drop: fluidPx(dims, 5, { min: 3, max: 8 }),
-    });
-    drawChunkyText(ctx, String(c.v), x, c.y, ch * 0.58, CUTE.ink, { outline: "#ffffff", outlineWidth: 4 });
-  }
-
-  // 깡총이 — 수직선 아래 잔디에서 응원 (눈금 숫자를 가리지 않는 자리)
-  const cr = fluidPx(dims, 24, { min: 18, max: 33 });
-  drawMascot(ctx, w * 0.9, gy + (h - gy) * 0.5, cr, CHAR, party.currentMood(remain));
-
-  const hudBottom = party.drawHud(ctx, dims, { remainMs: remain, count, suffix: "개" });
   drawCuteBanner(ctx, dims, [
-    { text: cond.text, size: 25, chunky: true, color: PARTY.gold },
-    { text: cond.hint, size: 14, color: CUTE.ink },
+    { text: round.title, size: 24, chunky: true, color: PARTY.gold },
+    { text: round.hint, size: 14, color: CUTE.ink },
   ], fluidPx, { top: hudBottom });
 
-  if (mode === "motion" && !hands.both) drawTwoHandHint(ctx, dims, fluidPx);
+  drawChunkyText(ctx, mode === "motion" ? "손을 좌우로 움직여 골문을 골라요!" : "좌우로 움직여 골문을 골라요!",
+    w * 0.5, h * 0.96, fluidPx(dims, 15, { min: 11, max: 20 }), "#fff",
+    { outline: CUTE.ink, outlineWidth: fluidPx(dims, 5, { min: 3.5, max: 7 }) });
 
   party.update(dt);
   confetti = updateConfetti(confetti, dt); drawConfetti(ctx, confetti);
