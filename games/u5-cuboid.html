@@ -76,7 +76,7 @@ import {
   drawMirroredVideo, fitCanvasToScreen, isHandRaised, getCursors,
   AutoDifficulty, levelFromUrl, medalFor,
   scheduleAutoRecording, ComboShot, drawPhotoOverlay,
-  ScreenShake, InputMode, PointerInput, StartGate,
+  ScreenShake, InputMode, PointerInput, StartGate, toMirroredCanvas,
   startCamera, formatFileTimestamp, fluidPx, showSoundHint,
   drawVignette, spawnConfetti, updateConfetti, drawConfetti,
 } from "../js/engine.js?v=3";
@@ -277,9 +277,9 @@ async function init() {
     lines: [
       "왼쪽 <b>전개도</b>를 보고 문제의 답이 되는 <b>한글 카드</b>를 찾아요.",
       mode === "motion"
-        ? "정답 카드 위에 <b>손을 올려 잠깐 유지</b>하면 펀치! 카드가 터져요."
-        : "정답 카드를 <b>클릭(터치)해서 잠깐 누르면</b> 펀치! 카드가 터져요.",
-      "카드는 <b>천천히 떠다녀요.</b> 급하게 휘두르지 않아도 돼요.",
+        ? "<b>주먹을 꽉 쥐고</b> 정답 카드를 겨눈 뒤, <b>앞으로 힘껏 뻗으면</b> 글러브가 날아가 터뜨려요!"
+        : "정답 카드를 겨누고 <b>화면을 누르면</b> 글러브가 날아가 터뜨려요!",
+      "카드는 <b>천천히 떠다녀요.</b> 겨눈 카드에 <b>흰 테두리</b>가 생기니 확인하고 치세요.",
       "⭐1 <b>마주 보는 면</b> → ⭐2 <b>이웃하지 않은 면</b> → ⭐3 <b>한 꼭짓점에서 만나는 면</b>",
     ],
   });
@@ -298,9 +298,15 @@ const startGate = new StartGate(mode, holdFill);
 let autoDiff, count, playEndAt;
 let net, q, roundAt, resolving;
 let cards = [];
-let aimIdx = -1, aimSince = 0, lockUntil = 0;
+let lockUntil = 0;
 let punch = null;            // 주먹이 꽂힌 자리 — 충격파와 파편을 그린다
 let shards = [];             // 부서진 카드 조각
+let handLm = null;           // 이번 프레임의 손 랜드마크
+let aim = null;              // 주먹이 겨누는 화면 좌표
+let fistNow = false;         // 지금 주먹을 쥐고 있는가
+let fistHist = [];           // 최근 주먹 크기·위치 — 앞으로 뻗는 순간을 잡는다
+let gloveShot = null;        // 날아가는 권투 글러브
+let targetIdx = -1;          // 지금 겨누고 있는 카드
 let confetti = [], sparks = [];
 const shake = new ScreenShake();
 let recorder, comboShot, fallbackShot, autoRec, recordedBlob = null;
@@ -308,7 +314,25 @@ const recIndicator = document.getElementById("recIndicator");
 let cursors = [];
 let lastFrameAt = 0;
 
-const AIM_MS = 260;   // 이만큼 카드 위에 머무르면 펀치 — 지나가다 잘못 맞는 것을 막는다
+// ── 주먹 인식 ───────────────────────────────────────────────────────────────
+// 손가락 끝이 중간마디보다 손목에 가까우면 그 손가락은 접힌 것이다.
+// 네 손가락 중 셋 이상 접혔으면 주먹으로 본다.
+function isFist(lm) {
+  const d = (a, b) => Math.hypot(lm[a].x - lm[b].x, lm[a].y - lm[b].y);
+  let curled = 0;
+  for (const [tip, pip] of [[8, 6], [12, 10], [16, 14], [20, 18]]) {
+    if (d(tip, 0) < d(pip, 0) * 1.02) curled++;
+  }
+  return curled >= 3;
+}
+// 손을 앞으로 뻗으면 카메라에 가까워져 손이 커 보인다 — 그 크기를 잰다
+function fistSize(lm) {
+  return Math.hypot(lm[0].x - lm[9].x, lm[0].y - lm[9].y);
+}
+
+const GLOVE_MS = 170;         // 글러브가 날아가는 시간
+const THRUST_RATIO = 1.18;    // 300 ms 안에 주먹이 이만큼 커지면 "앞으로 뻗었다"
+const JAB_FRAC = 0.12;        // 또는 200 ms 안에 화면의 이만큼을 가로지르면 잽
 
 // 카드를 겹치지 않게 늘어놓고, 각자 천천히 떠다닐 속도를 준다
 function placeCards(faces) {
@@ -376,7 +400,7 @@ function newRound() {
   q = genQuestion(autoDiff.level, net);
   placeCards(q.faces);
   resolving = false;
-  aimIdx = -1;
+  targetIdx = -1;
   punch = null;
   shards = [];
   roundAt = performance.now();
@@ -555,7 +579,7 @@ function missed(card) {
   shake.trigger(6, 160);
   if (!isMuted()) sound.wrong();
   lockUntil = performance.now() + 550;
-  aimIdx = -1;
+  targetIdx = -1;
 }
 
 function endGame() {
@@ -613,23 +637,116 @@ function goReady() {
   }, 500);
 }
 
-// ── 펀치 판정: 카드 위에 손을 잠깐 얹으면 친다 ──
+// ── 주먹을 날리면 글러브가 나간다 ──────────────────────────────────────────
 function detectPunch(now) {
-  if (resolving || now < lockUntil) { aimIdx = -1; return; }
-  const p = cursors[0];
-  if (!p) { aimIdx = -1; return; }
-  let idx = -1;
+  if (resolving || gloveShot || now < lockUntil) return;
+
+  if (mode !== "motion") {
+    if (pointerInput && pointerInput.consumeJustDown() && aim) launchGlove(aim);
+    return;
+  }
+
+  if (!handLm) { fistHist = []; return; }
+  fistHist.push({ t: now, s: fistSize(handLm), x: aim ? aim.x : 0, y: aim ? aim.y : 0, fist: fistNow });
+  while (fistHist.length && now - fistHist[0].t > 300) fistHist.shift();
+  if (!fistNow || fistHist.length < 3 || !aim) return;
+
+  const last = fistHist[fistHist.length - 1];
+  // ① 앞으로 쭉 뻗기 — 주먹이 갑자기 커진다
+  const minS = Math.min(...fistHist.map((h) => h.s));
+  if (last.s > minS * THRUST_RATIO) { launchGlove(aim); fistHist = []; return; }
+  // ② 잽 — 주먹을 쥔 채 짧고 빠르게 내지른다
+  const recent = fistHist.filter((h) => now - h.t <= 200);
+  if (recent.length >= 3) {
+    const o = recent[0];
+    if (Math.hypot(last.x - o.x, last.y - o.y) > Math.min(dims.w, dims.h) * JAB_FRAC) {
+      launchGlove(aim); fistHist = [];
+    }
+  }
+}
+
+function launchGlove(from) {
+  if (!from) return;
+  // 겨눈 곳에서 가장 가까운 카드를 노린다 — 정확히 겹치지 않아도 넉넉히 잡아 준다
+  let idx = -1, best = Infinity;
   for (let i = 0; i < cards.length; i++) {
     const c = cards[i];
-    if (c.gone || c.bad > 0.3) continue;
-    if (Math.hypot(p.x - c.x, p.y - c.y) < c.r * 1.05) { idx = i; break; }
+    if (c.gone) continue;
+    const d = Math.hypot(from.x - c.x, from.y - c.y);
+    if (d < best) { best = d; idx = i; }
   }
-  if (idx !== aimIdx) { aimIdx = idx; aimSince = now; return; }
-  if (idx < 0 || now - aimSince < AIM_MS) return;
-  const card = cards[idx];
-  aimIdx = -1;
-  if (card.face === q.answer) succeed(card);
-  else missed(card);
+  const reach = Math.min(dims.w, dims.h) * 0.34;
+  gloveShot = {
+    fromX: from.x, fromY: from.y, x: from.x, y: from.y, t: 0,
+    idx: (idx >= 0 && best < reach) ? idx : -1,
+    at: performance.now(),
+  };
+  if (!isMuted()) sound.swoosh();
+}
+
+function updateGlove(now) {
+  if (!gloveShot) return;
+  const t = Math.min(1, (now - gloveShot.at) / GLOVE_MS);
+  gloveShot.t = t;
+  const target = gloveShot.idx >= 0 ? cards[gloveShot.idx] : null;
+  const tx = target ? target.x : gloveShot.fromX;
+  const ty = target ? target.y : gloveShot.fromY - dims.h * 0.28;   // 빗맞으면 허공으로 뻗는다
+  gloveShot.x = gloveShot.fromX + (tx - gloveShot.fromX) * t;
+  gloveShot.y = gloveShot.fromY + (ty - gloveShot.fromY) * t;
+  if (t < 1) return;
+
+  gloveShot = null;
+  if (target && !target.gone) {
+    if (target.face === q.answer) succeed(target);
+    else missed(target);
+  } else {
+    // 허공을 쳤다 — 벌점 없이 가볍게 넘어간다
+    if (!isMuted()) sound.fizzle();
+    shake.trigger(3, 110);
+  }
+}
+
+// ── 권투 글러브 그리기 ──
+function drawBoxingGlove(ctx, x, y, r, opts = {}) {
+  const color = opts.color ?? CUTE.red;
+  ctx.save();
+  if (opts.rot) { ctx.translate(x, y); ctx.rotate(opts.rot); ctx.translate(-x, -y); }
+  // 손목 밴드 — 글러브 아래로 살짝만 내민다
+  drawStickerRect(ctx, x, y + r * 0.84, r * 0.92, r * 0.40, r * 0.14, CUTE.cream,
+    { lineWidth: Math.max(2.5, r * 0.10), drop: 0 });
+  // 엄지 — 본체보다 먼저 그려야 옆에 뭉툭하게 붙은 모양이 된다
+  drawSticker(ctx, x - r * 0.64, y + r * 0.24, r * 0.34, color,
+    { lineWidth: Math.max(2.5, r * 0.11), gloss: false, drop: 0 });
+  // 본체
+  drawSticker(ctx, x, y, r * 0.84, color, { lineWidth: Math.max(3, r * 0.12), drop: r * 0.05 });
+  // 손가락 마디 골 — 이게 있어야 주먹으로 읽힌다
+  ctx.save();
+  ctx.strokeStyle = "rgba(34,48,92,0.32)";
+  ctx.lineWidth = Math.max(2, r * 0.07);
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(x - r * 0.36, y - r * 0.10);
+  ctx.lineTo(x + r * 0.42, y - r * 0.10);
+  ctx.stroke();
+  ctx.restore();
+  ctx.restore();
+}
+
+function drawGloveShot(ctx) {
+  if (!gloveShot) return;
+  const t = gloveShot.t;
+  const r = fluidPx(dims, 44, { min: 32, max: 64 }) * (1 + t * 0.5);   // 뻗을수록 커 보인다
+  ctx.save();
+  ctx.globalAlpha = 0.32;
+  ctx.strokeStyle = CUTE.red;
+  ctx.lineWidth = r * 0.55;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(gloveShot.fromX, gloveShot.fromY);
+  ctx.lineTo(gloveShot.x, gloveShot.y);
+  ctx.stroke();
+  ctx.restore();
+  drawBoxingGlove(ctx, gloveShot.x, gloveShot.y, r);
 }
 
 // ── 전개도 (왼쪽 판) ──
@@ -688,14 +805,13 @@ function drawCards(ctx, now) {
     drawChunkyText(ctx, FACE_NAMES[c.face], c.x, c.y + wob, rr * 0.86, "#fff",
       { outline: CUTE.ink, outlineWidth: Math.max(3, rr * 0.16) });
 
-    // 조준 링 — 얼마나 더 있으면 펀치가 나가는지 보여 준다
-    if (i === aimIdx && !c.gone) {
-      const t = Math.min(1, (now - aimSince) / AIM_MS);
+    // 지금 주먹을 날리면 맞을 카드 — 테두리를 둘러 미리 알려 준다
+    if (i === targetIdx && !c.gone) {
+      const pulse = 0.5 + 0.5 * Math.sin(now / 150);
       ctx.beginPath();
-      ctx.arc(c.x, c.y + wob, rr * 1.25, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * t);
-      ctx.strokeStyle = PARTY.gold;
-      ctx.lineWidth = Math.max(4, rr * 0.16);
-      ctx.lineCap = "round";
+      ctx.arc(c.x, c.y + wob, rr * (1.2 + pulse * 0.08), 0, Math.PI * 2);
+      ctx.strokeStyle = fistNow ? PARTY.gold : "rgba(255,255,255,0.75)";
+      ctx.lineWidth = Math.max(4, rr * (fistNow ? 0.18 : 0.11));
       ctx.stroke();
     }
     ctx.restore();
@@ -725,12 +841,28 @@ function loop(tsMs) {
   }
   cursors = getCursors(mode, result, w, h, video, pointerInput);
 
+  // 주먹을 쥐면 검지 끝이 손바닥으로 말려 들어가므로, 겨냥은 주먹 한가운데(중지 뿌리)로 잡는다
+  handLm = (result && result.landmarks && result.landmarks[0]) || null;
+  if (mode === "motion") {
+    fistNow = handLm ? isFist(handLm) : false;
+    aim = handLm ? toMirroredCanvas(handLm[9], w, h, video) : null;
+  } else {
+    fistNow = !!(pointerInput && pointerInput.down);
+    aim = cursors[0] || null;
+  }
+
   if (state === "playing") stepGame();
 
-  // 때린 직후에는 주먹이 잠깐 커진다 — 친 느낌을 손끝에서 확인시켜 준다
-  const hitK = punch ? Math.max(0, 1 - (performance.now() - punch.at) / 220) : 0;
-  const gsize = fluidPx(dims, 44, { min: 32, max: 62 }) * (1 + hitK * 0.45);
-  for (const c of cursors) drawGloveCursor(ctx, c.x, c.y, gsize, { active: aimIdx >= 0 || hitK > 0 });
+  // 손 위치에는 권투 글러브를 얹는다. 주먹을 쥐면 살짝 커지며 칠 준비가 된 것이 보인다.
+  if (aim && !gloveShot) {
+    const hitK = punch ? Math.max(0, 1 - (performance.now() - punch.at) / 220) : 0;
+    const r = fluidPx(dims, 40, { min: 30, max: 58 }) * (1 + (fistNow ? 0.14 : 0) + hitK * 0.4);
+    ctx.save();
+    if (!fistNow) ctx.globalAlpha = 0.75;   // 주먹을 쥐어야 또렷해진다 — 쥔 상태가 한눈에 보인다
+    drawBoxingGlove(ctx, aim.x, aim.y, r, { color: CUTE.red, rot: fistNow ? -0.12 : 0 });
+    ctx.restore();
+  }
+  drawGloveShot(ctx);
   ctx.restore();
 }
 
@@ -746,7 +878,21 @@ function stepGame() {
 
   updateCards(dt);
   updateShards(dt);
+  updateGlove(now);
   if (now - roundAt > 400) detectPunch(now);
+
+  // 겨누고 있는 카드 — launchGlove와 같은 기준으로 고른다
+  targetIdx = -1;
+  if (aim && !resolving && !gloveShot) {
+    let best = Infinity;
+    for (let i = 0; i < cards.length; i++) {
+      const c = cards[i];
+      if (c.gone) continue;
+      const d = Math.hypot(aim.x - c.x, aim.y - c.y);
+      if (d < best) { best = d; targetIdx = i; }
+    }
+    if (best >= Math.min(dims.w, dims.h) * 0.34) targetIdx = -1;
+  }
 
   drawNet(ctx);
   drawCards(ctx, now);
@@ -764,8 +910,11 @@ function stepGame() {
     { text: q.hint, size: 14, color: CUTE.ink },
   ], fluidPx, { top: hudBottom });
 
-  drawChunkyText(ctx, mode === "motion" ? "정답 카드에 손을 올려요!" : "정답 카드를 눌러요!",
-    w * 0.64, h * 0.94, fluidPx(dims, 16, { min: 12, max: 22 }), "#fff",
+  const guide = mode === "motion"
+    ? (fistNow ? "🥊 그대로 앞으로 뻗으세요!" : "주먹을 꽉 쥐고 정답 카드를 겨눠요!")
+    : "정답 카드를 겨누고 눌러요!";
+  drawChunkyText(ctx, guide, w * 0.64, h * 0.94, fluidPx(dims, 16, { min: 12, max: 22 }),
+    fistNow ? PARTY.gold : "#fff",
     { outline: CUTE.ink, outlineWidth: fluidPx(dims, 5, { min: 3.5, max: 7 }) });
 
   party.update(dt);
