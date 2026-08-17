@@ -46,7 +46,8 @@ export function drawSticker(ctx, x, y, r, fill, opts = {}) {
   ctx.lineWidth = lw; ctx.strokeStyle = ink; ctx.stroke();
   if (opts.gloss !== false) {
     ctx.save();
-    ctx.beginPath(); ctx.arc(x, y, r - lw * 0.5, 0, Math.PI * 2); ctx.clip();
+    // 작은 스티커(사라져 가는 반짝임 등)에서는 r - lw/2 가 음수가 되어 arc가 예외를 던진다
+    ctx.beginPath(); ctx.arc(x, y, Math.max(0, r - lw * 0.5), 0, Math.PI * 2); ctx.clip();
     ctx.beginPath();
     ctx.ellipse(x - r * 0.26, y - r * 0.44, r * 0.46, r * 0.26, -0.45, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(255,255,255,0.6)"; ctx.fill();

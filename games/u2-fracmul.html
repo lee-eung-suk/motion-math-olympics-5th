@@ -84,7 +84,7 @@ import {
   CUTE, bob, drawSticker, drawStickerRect, drawChunkyText,
   spawnSparkles, updateSparkles, drawSparkles, makeDrifters, drawDrifters,
   drawBunting, drawGloveCursor, drawLevelStars, drawCuteBanner,
-} from "../js/cute.js?v=6";
+} from "../js/cute.js?v=7";
 import {
   PARTY, CHARACTERS, Party, drawPartyBackdrop, drawCrowd, drawMascot,
   showRuleCard, renderPodium, irisTransition,
@@ -214,6 +214,7 @@ let autoDiff, count, playEndAt;
 let round, phase, roundAt, ball = null, resultMark = null;
 let pull = 0;                          // 지금 당긴 거리(m)
 let trail = [];                        // 최근 손 위치 — 앞으로 휘두르는 순간을 잡는다
+let ballTrail = [];                    // 날아가는 공이 지나온 자리 — 잔상으로 그린다
 let wasDown = false;
 const smooth = new SmoothedPoint(4);
 let confetti = [], sparks = [];
@@ -295,14 +296,23 @@ function fire(power) {
   const landed = Math.round(power * 2) / 2;
   if (landed < 0.5) return;                 // 살짝 흔든 것까지 발사로 치면 억울하다
   phase = "fly";
-  ball = { landed, start: performance.now(), dur: 820 };
+  ball = { landed, start: performance.now(), dur: 1000 };
+  ballTrail = [];
   if (!isMuted()) sound.shot();
 }
 
+// 착지 직전을 느리게 — 마지막 25%의 시간이 거리의 12%만 소화한다
+function flightT(u) {
+  return u < 0.75 ? (u / 0.75) * 0.88 : 0.88 + ((u - 0.75) / 0.25) * 0.12;
+}
+
 function resolveShot() {
-  const ok = Math.abs(ball.landed - round.value) < 0.26;
+  const err = Math.abs(ball.landed - round.value);
+  const ok = err < 0.26;
+  // 성공 안에서도 정중앙이면 더 크게 축하한다 (합격선 0.26 m는 그대로)
+  const tier = err < 0.1 ? "perfect" : (ok ? "good" : "miss");
   phase = "done";
-  resultMark = { landed: ball.landed, ok, at: performance.now() };
+  resultMark = { landed: ball.landed, ok, tier, at: performance.now() };
   const x = mToX(ball.landed), y = RULER_Y();
   const py = y - fluidPx(dims, 60, { min: 44, max: 84 });
   if (ok) {
@@ -311,9 +321,16 @@ function resolveShot() {
     if (party.combo > 0 && party.combo === party.maxCombo) comboShot.capture(canvas);
     autoDiff.reportCorrect();
     autoRec.trigger();
-    shake.trigger(7, 160);
-    spawnSparkles(sparks, x, y, 26, ["#fff", PARTY.gold, CUTE.green]);
-    spawnConfetti(confetti, x, y, 34);
+    if (!isMuted()) sound.hit(tier);
+    shake.trigger(tier === "perfect" ? 11 : 7, tier === "perfect" ? 240 : 160);
+    spawnSparkles(sparks, x, y, tier === "perfect" ? 38 : 26, ["#fff", PARTY.gold, CUTE.green]);
+    // 콤보가 쌓일수록 불꽃이 커진다
+    const boost = Math.min(30, party.combo * 4);
+    spawnConfetti(confetti, x, y, (tier === "perfect" ? 48 : 34) + boost);
+    if (tier === "perfect") {
+      spawnSparkles(sparks, x - 60, y - 40, 14, [PARTY.gold, "#fff"]);
+      spawnSparkles(sparks, x + 60, y - 40, 14, [PARTY.gold, "#fff"]);
+    }
   } else {
     party.wrong(x, py, "아깝다!");
     autoDiff.reportWrong();
@@ -518,18 +535,33 @@ function stepGame() {
       "rgba(255,255,255,0.7)", { lineWidth: 2.5, drop: 2, gloss: false });
     const fillW = (pull / MAXM) * (PULL_ZERO() - PULL_FULL());
     ctx.save();
-    ctx.fillStyle = CUTE.red;
+    // 세기에 따라 색이 달아오른다 — 정답 여부는 알려 주지 않으므로 난이도는 그대로다
+    const k = pull / MAXM;
+    ctx.fillStyle = k > 0.72 ? PARTY.gold : (k > 0.38 ? CUTE.orangeDark : CUTE.red);
     ctx.beginPath();
     ctx.roundRect(PULL_ZERO() - fillW, gy - gh / 2, fillW, gh, gh / 2);
     ctx.fill();
     ctx.restore();
   }
 
-  // 날아가는 공
+  // 날아가는 공 — 잔상을 남기고, 착지 직전에는 느려진다
   if (phase === "fly" || (resultMark && now - resultMark.at < 800)) {
-    const t = phase === "fly" ? Math.min(1, (now - ball.start) / ball.dur) : 1;
+    const u = phase === "fly" ? Math.min(1, (now - ball.start) / ball.dur) : 1;
+    const t = flightT(u);
     const bx = cx + (mToX(ball.landed) - cx) * t;
     const by = cy - Math.sin(Math.PI * t) * h * 0.32;
+    if (phase === "fly") {
+      ballTrail.push({ x: bx, y: Math.min(by, ry) });
+      if (ballTrail.length > 14) ballTrail.shift();
+    }
+    ctx.save();
+    for (let i = 0; i < ballTrail.length; i++) {
+      const p = ballTrail[i];
+      const k = (i + 1) / ballTrail.length;
+      ctx.globalAlpha = k * 0.42;
+      drawSticker(ctx, p.x, p.y, cr * 0.34 * k, PARTY.gold, { lineWidth: 0, gloss: false, shadow: "rgba(0,0,0,0)" });
+    }
+    ctx.restore();
     ctx.save();
     ctx.font = `${cr * 1.1}px sans-serif`;
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
@@ -539,7 +571,35 @@ function stepGame() {
 
   if (resultMark) {
     const x = mToX(resultMark.landed);
+
+    // 3중 과녁 — 정답이 어디였는지 짚어 주는 표적. 던진 뒤에만 펼쳐 보여 준다.
+    // 합격 범위(0.26 m)를 실제 눈금으로 그리면 7 px 남짓이라 보이지 않으므로,
+    // 눈에 들어오는 크기의 표적으로 그린다 (가운데 점이 정답 자리다)
+    const tx = mToX(round.value);
+    const ringR = fluidPx(dims, 30, { min: 20, max: 44 });
+    // resultMark는 이 프레임의 now를 읽은 뒤에 찍히므로 경과가 잠깐 음수가 될 수 있다.
+    // 그대로 두면 반지름이 음수가 되어 arc가 예외를 던진다.
+    const grow = Math.max(0, Math.min(1, (now - resultMark.at) / 260));
+    ctx.save();
+    ctx.globalAlpha = 0.85;
+    [[1, "rgba(255,255,255,0.85)"], [0.6, "rgba(255,207,63,0.95)"], [0.33, "rgba(81,207,102,0.95)"]].forEach(([k, col]) => {
+      ctx.beginPath();
+      ctx.arc(tx, ry, ringR * k * grow, 0, Math.PI * 2);
+      ctx.strokeStyle = col;
+      ctx.lineWidth = fluidPx(dims, 3, { min: 2, max: 4.5 });
+      ctx.stroke();
+    });
+    ctx.restore();
+
     drawSticker(ctx, x, ry, fluidPx(dims, 13, { min: 9, max: 18 }), resultMark.ok ? CUTE.green : CUTE.red, { lineWidth: 3 });
+
+    if (resultMark.ok) {
+      const label = resultMark.tier === "perfect" ? "PERFECT!" : "GOOD!";
+      const pop = 1 + Math.sin(Math.max(0, Math.min(1, (now - resultMark.at) / 220)) * Math.PI) * 0.25;
+      drawChunkyText(ctx, label, x, ry - fluidPx(dims, 62, { min: 44, max: 88 }),
+        fluidPx(dims, resultMark.tier === "perfect" ? 30 : 24, { min: 17, max: 40 }) * pop, "#fff",
+        { outline: resultMark.tier === "perfect" ? PARTY.gold : CUTE.green, outlineWidth: fluidPx(dims, 6, { min: 4, max: 9 }) });
+    }
     if (!resultMark.ok) {
       const ax = mToX(round.value);
       ctx.save();
