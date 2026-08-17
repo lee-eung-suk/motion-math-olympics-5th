@@ -199,8 +199,11 @@ async function init() {
     lines: [
       "위에서 <b>숫자 공</b>이 하나 내려와요. 아래에는 <b>골문</b>이 여러 개 있어요.",
       mode === "motion"
-        ? "<b>손을 좌우로 움직이면</b> 공이 따라와요. 조건에 맞는 골문으로 넣으세요!"
-        : "<b>화면에서 좌우로 움직이면</b> 공이 따라와요. 조건에 맞는 골문으로 넣으세요!",
+        ? "<b>손을 좌우로 움직이면</b> 공이 따라와요. 조건에 맞는 골문 위로 옮기세요!"
+        : "<b>화면에서 좌우로 움직이면</b> 공이 따라와요. 조건에 맞는 골문 위로 옮기세요!",
+      mode === "motion"
+        ? "골문을 정했으면 <b>손을 아래로 쑥 내려</b> 공을 떨어뜨려요! (그냥 두면 저절로 내려가요)"
+        : "골문을 정했으면 <b>화면을 눌러</b> 공을 떨어뜨려요! (그냥 두면 저절로 내려가요)",
       "골문마다 <b>수의 범위 조건</b>이 붙어 있어요. 공의 수가 어디에 들어가는지 판단해요.",
       "⭐1 <b>이상·이하·초과·미만</b> → ⭐2 <b>올림·버림</b> → ⭐3 <b>반올림</b>",
     ],
@@ -220,6 +223,8 @@ const startGate = new StartGate(mode, holdFill);
 let autoDiff, count, playEndAt;
 let round = null, gates = [], ball = null, roundAt, resolving;
 let netShake = 0, judgedIdx = -1, judgedOk = false;
+let handTrail = [];          // 최근 손 높이 — 아래로 내리는 동작을 잡는다
+let dropFlash = 0;           // 떨어뜨린 순간의 표시
 let confetti = [], sparks = [];
 const shake = new ScreenShake();
 let recorder, comboShot, fallbackShot, autoRec, recordedBlob = null;
@@ -247,9 +252,11 @@ function layoutGates() {
 function newRound() {
   round = genRound(autoDiff.level);
   layoutGates();
-  ball = { n: round.n, x: dims.w / 2, y: ballStartY(), r: 0 };
+  ball = { n: round.n, x: dims.w / 2, y: ballStartY(), r: 0, dropped: false };
   resolving = false;
   judgedIdx = -1;
+  handTrail = [];
+  dropFlash = 0;
   roundAt = performance.now();
 }
 
@@ -394,6 +401,31 @@ function goReady() {
   }, 500);
 }
 
+// ── 떨어뜨리기: 손을 아래로 내리거나 화면을 누르면 곧장 골문으로 ──
+function dropBall() {
+  if (resolving || !ball || ball.dropped) return;
+  ball.dropped = true;
+  dropFlash = 1;
+  if (!isMuted()) sound.swoosh();
+}
+
+function detectDrop(now) {
+  if (resolving || !ball || ball.dropped) return;
+  if (mode === "motion") {
+    const p = cursors[0];
+    if (!p) { handTrail = []; return; }
+    handTrail.push({ t: now, y: p.y });
+    while (handTrail.length && now - handTrail[0].t > 240) handTrail.shift();
+    // 240 ms 안에 화면 높이의 9% 이상 손을 내리면 "떨어뜨렸다"고 본다
+    if (handTrail.length >= 3 && p.y - handTrail[0].y > dims.h * 0.09) {
+      dropBall();
+      handTrail = [];
+    }
+    return;
+  }
+  if (pointerInput && pointerInput.consumeJustDown()) dropBall();
+}
+
 // ── 골문 ──
 function drawGates(ctx, now) {
   const { w, h } = dims;
@@ -448,6 +480,20 @@ function drawBall(ctx, now) {
   drawChunkyText(ctx, String(ball.n), ball.x, ball.y, r * 0.95, CUTE.ink,
     { outline: "#fff", outlineWidth: Math.max(3, r * 0.18) });
 
+  // 떨어뜨리는 중이면 위로 꼬리가 늘어져 속도가 보인다
+  if (ball.dropped && !resolving) {
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.strokeStyle = PARTY.gold;
+    ctx.lineWidth = r * 0.5;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(ball.x, ball.y - r * 0.4);
+    ctx.lineTo(ball.x, ball.y - r * 2.1);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   // 어느 골문으로 향하는지 바닥에 그림자로 알려 준다
   ctx.save();
   ctx.globalAlpha = 0.25;
@@ -456,6 +502,23 @@ function drawBall(ctx, now) {
   ctx.ellipse(ball.x, goalLineY() - 6, r * 0.8, r * 0.22, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
+
+  // 아직 안 떨어뜨렸으면 "내릴 수 있다"는 것을 화살표로 알려 준다
+  if (!ball.dropped && !resolving) {
+    const t = (performance.now() % 900) / 900;
+    const ay = ball.y + r * 1.5 + t * r * 0.7;
+    ctx.save();
+    ctx.globalAlpha = 0.75 * (1 - t);
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = Math.max(3, r * 0.16);
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(ball.x - r * 0.42, ay);
+    ctx.lineTo(ball.x, ay + r * 0.42);
+    ctx.lineTo(ball.x + r * 0.42, ay);
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 function loop(tsMs) {
@@ -505,12 +568,18 @@ function stepGame() {
       const target = Math.max(margin, Math.min(w - margin, p.x));
       ball.x += (target - ball.x) * Math.min(1, dt * 9);
     }
-    // 일정한 속도로 내려온다
-    const startY = ballStartY();
-    ball.y = startY + (goalLineY() - startY) * Math.min(1, (now - roundAt) / round.fallMs);
-    if (ball.y >= goalLineY() - 1) judge();
+    detectDrop(now);
+    if (ball.dropped) {
+      // 떨어뜨리면 곧장 골문으로 — 기다리지 않고 바로 결과를 본다
+      ball.y += dims.h * 2.6 * dt;
+    } else {
+      const startY = ballStartY();
+      ball.y = startY + (goalLineY() - startY) * Math.min(1, (now - roundAt) / round.fallMs);
+    }
+    if (ball.y >= goalLineY() - 1) { ball.y = goalLineY(); judge(); }
   }
   if (netShake > 0) netShake = Math.max(0, netShake - dt * 2.2);
+  if (dropFlash > 0) dropFlash = Math.max(0, dropFlash - dt * 3);
 
   drawGates(ctx, now);
   drawBall(ctx, now);
@@ -526,7 +595,8 @@ function stepGame() {
     { text: round.hint, size: 14, color: CUTE.ink },
   ], fluidPx, { top: hudBottom });
 
-  drawChunkyText(ctx, mode === "motion" ? "손을 좌우로 움직여 골문을 골라요!" : "좌우로 움직여 골문을 골라요!",
+  drawChunkyText(ctx,
+    mode === "motion" ? "좌우로 골문을 고르고, 손을 내려 떨어뜨려요!" : "좌우로 골문을 고르고, 눌러서 떨어뜨려요!",
     w * 0.5, h * 0.96, fluidPx(dims, 15, { min: 11, max: 20 }), "#fff",
     { outline: CUTE.ink, outlineWidth: fluidPx(dims, 5, { min: 3.5, max: 7 }) });
 

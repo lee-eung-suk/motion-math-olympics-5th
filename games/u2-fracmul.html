@@ -136,33 +136,24 @@ function properFrac(maxD) {
   return { n: 1, d: 2 };
 }
 
+// 언제나 (진분수) × (자연수) 한 가지 꼴만 낸다.
+// 자연수를 분모의 배수로 잡으므로 답이 늘 자연수가 되어, 머릿속으로 바로 셀 수 있다.
+// (분수 × 분수는 답이 1보다 작아지기 일쑤라 눈금에 맞추기 어려워 빼 두었다)
 function genRound(level) {
+  const maxD = level === 1 ? 4 : (level === 2 ? 5 : 6);   // 분모 크기로만 난이도를 올린다
+  const maxV = level === 1 ? 6 : (level === 2 ? 9 : 12);  // 답(=던질 거리)의 상한
   for (let tries = 0; tries < 300; tries++) {
-    let text, value;
-    if (level === 1) {
-      // ⭐1: 진분수 × 자연수
-      const { n, d } = properFrac(6);
-      const k = randInt(2, Math.max(2, Math.floor(MAXM / n)));
-      const c = d * k;
-      value = (n / d) * c;
-      text = `${fracText(n, d)} × ${c}`;
-    } else if (level === 2) {
-      // ⭐2: 진분수 × 진분수 (대분수 제거)
-      const f1 = properFrac(6), f2 = properFrac(6);
-      value = (f1.n / f1.d) * (f2.n / f2.d);
-      text = `${fracText(f1.n, f1.d)} × ${fracText(f2.n, f2.d)}`;
-    } else {
-      // ⭐3: 진분수 × 진분수 (더 복잡한 분모)
-      const f1 = properFrac(8), f2 = properFrac(8);
-      value = (f1.n / f1.d) * (f2.n / f2.d);
-      text = `${fracText(f1.n, f1.d)} × ${fracText(f2.n, f2.d)}`;
-    }
-    const snapped = Math.round(value * 2) / 2;
-    if (Math.abs(value - snapped) > 1e-9) continue;
-    if (snapped < 1 || snapped > MAXM) continue;
-    return { text, value: snapped };
+    const { n, d } = properFrac(maxD);
+    // c = d × k 이면 (n/d) × c = n × k 로 딱 떨어진다
+    const kMax = Math.min(Math.floor(maxV / n), Math.floor(20 / d));
+    if (kMax < 1) continue;
+    const k = randInt(1, kMax);
+    const c = d * k;
+    const value = n * k;
+    if (c < 2 || value < 1 || value > maxV) continue;
+    return { text: `${fracText(n, d)} × ${c}`, value };
   }
-  return { text: "1/2 × 1/2", value: 0.25 };
+  return { text: "1/2 × 4", value: 2 };
 }
 
 const handTracker = new HandTracker();
@@ -196,6 +187,7 @@ async function init() {
       mode === "motion"
         ? "계산한 거리에 맞춰 당긴 뒤, <b>팔을 앞으로 확 휘두르면</b> 발사!"
         : "계산한 거리에 맞춰 당긴 뒤 <b>손을 떼면</b> 발사!",
+      "문제는 늘 <b>(분수) × (자연수)</b> 꼴이고, <b>답은 자연수</b>예요. 편하게 계산해요!",
     ],
   });
 

@@ -299,6 +299,8 @@ let autoDiff, count, playEndAt;
 let net, q, roundAt, resolving;
 let cards = [];
 let aimIdx = -1, aimSince = 0, lockUntil = 0;
+let punch = null;            // 주먹이 꽂힌 자리 — 충격파와 파편을 그린다
+let shards = [];             // 부서진 카드 조각
 let confetti = [], sparks = [];
 const shake = new ScreenShake();
 let recorder, comboShot, fallbackShot, autoRec, recordedBlob = null;
@@ -375,6 +377,8 @@ function newRound() {
   placeCards(q.faces);
   resolving = false;
   aimIdx = -1;
+  punch = null;
+  shards = [];
   roundAt = performance.now();
 }
 
@@ -426,11 +430,101 @@ function beginPlay() {
   });
 }
 
+// 주먹이 꽂히는 순간 — 충격파, 파편, 번쩍임
+function hitFx(card, ok) {
+  punch = { x: card.x, y: card.y, r: card.r, at: performance.now(), ok };
+  const color = LANE_COLORS[card.face % LANE_COLORS.length];
+  const n = ok ? 10 : 5;
+  for (let i = 0; i < n; i++) {
+    const a = (Math.PI * 2 * i) / n + Math.random() * 0.5;
+    const sp = (ok ? 260 : 150) * (0.6 + Math.random() * 0.7);
+    shards.push({
+      x: card.x, y: card.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 90,
+      rot: Math.random() * Math.PI, spin: (Math.random() - 0.5) * 12,
+      size: card.r * (0.30 + Math.random() * 0.26), color, life: 620, maxLife: 620,
+    });
+  }
+}
+
+function updateShards(dt) {
+  for (const s of shards) {
+    s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 900 * dt;
+    s.rot += s.spin * dt; s.life -= dt * 1000;
+  }
+  shards = shards.filter((s) => s.life > 0);
+}
+
+function drawShards(ctx) {
+  ctx.save();
+  for (const s of shards) {
+    const k = Math.max(0, s.life / s.maxLife);
+    ctx.globalAlpha = k;
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    ctx.rotate(s.rot);
+    ctx.fillStyle = s.color;
+    ctx.strokeStyle = CUTE.ink;
+    ctx.lineWidth = Math.max(1.5, s.size * 0.16);
+    ctx.beginPath();
+    ctx.rect(-s.size / 2, -s.size / 2, s.size, s.size);
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// 충격파 링 + 방사선 + "쾅!"
+function drawPunch(ctx, now) {
+  if (!punch) return;
+  const t = (now - punch.at) / 460;
+  if (t >= 1) { punch = null; return; }
+  const e = Math.max(0, Math.min(1, t));
+  ctx.save();
+  ctx.globalAlpha = (1 - e) * 0.9;
+
+  // 충격파 링 두 겹
+  [1, 0.62].forEach((k, i) => {
+    ctx.beginPath();
+    ctx.arc(punch.x, punch.y, punch.r * (0.6 + e * 2.4 * k), 0, Math.PI * 2);
+    ctx.strokeStyle = punch.ok ? (i ? "#fff" : PARTY.gold) : CUTE.orangeDark;
+    ctx.lineWidth = Math.max(3, punch.r * 0.22 * (1 - e));
+    ctx.stroke();
+  });
+
+  // 방사선
+  const lines = punch.ok ? 10 : 6;
+  ctx.strokeStyle = punch.ok ? PARTY.gold : CUTE.orangeDark;
+  ctx.lineWidth = Math.max(2.5, punch.r * 0.14 * (1 - e));
+  ctx.lineCap = "round";
+  for (let i = 0; i < lines; i++) {
+    const a = (Math.PI * 2 * i) / lines;
+    const r0 = punch.r * (0.7 + e * 1.5);
+    const r1 = r0 + punch.r * 0.7 * (1 - e);
+    ctx.beginPath();
+    ctx.moveTo(punch.x + Math.cos(a) * r0, punch.y + Math.sin(a) * r0);
+    ctx.lineTo(punch.x + Math.cos(a) * r1, punch.y + Math.sin(a) * r1);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // 타격 글자 — 튀어나왔다가 사라진다
+  if (e < 0.75) {
+    const pop = 1 + Math.sin(Math.min(1, e / 0.35) * Math.PI * 0.5) * 0.5;
+    ctx.save();
+    ctx.globalAlpha = 1 - e / 0.75;
+    drawChunkyText(ctx, punch.ok ? "쾅!" : "빗나감!", punch.x, punch.y - punch.r * 1.5,
+      punch.r * (punch.ok ? 0.9 : 0.6) * pop, "#fff",
+      { outline: punch.ok ? PARTY.gold : CUTE.orangeDark, outlineWidth: Math.max(4, punch.r * 0.2) });
+    ctx.restore();
+  }
+}
+
 function succeed(card) {
   resolving = true;
   count++;
   card.pop = 1;
   card.gone = true;
+  hitFx(card, true);
   party.correct(card.x, card.y, { base: 11, elapsedMs: performance.now() - roundAt });
   if (party.combo > 0 && party.combo === party.maxCombo) comboShot.capture(canvas);
   autoDiff.reportCorrect();
@@ -452,6 +546,7 @@ function succeed(card) {
 // 틀린 카드는 튕겨 나가고 잠깐 다시 못 치게 한다 — 마구 휘둘러 찍는 것을 막는다
 function missed(card) {
   card.bad = 1;
+  hitFx(card, false);
   const ang = Math.random() * Math.PI * 2;
   card.vx = Math.cos(ang) * 170;
   card.vy = Math.sin(ang) * 170;
@@ -632,7 +727,10 @@ function loop(tsMs) {
 
   if (state === "playing") stepGame();
 
-  for (const c of cursors) drawGloveCursor(ctx, c.x, c.y, fluidPx(dims, 44, { min: 32, max: 62 }), { active: aimIdx >= 0 });
+  // 때린 직후에는 주먹이 잠깐 커진다 — 친 느낌을 손끝에서 확인시켜 준다
+  const hitK = punch ? Math.max(0, 1 - (performance.now() - punch.at) / 220) : 0;
+  const gsize = fluidPx(dims, 44, { min: 32, max: 62 }) * (1 + hitK * 0.45);
+  for (const c of cursors) drawGloveCursor(ctx, c.x, c.y, gsize, { active: aimIdx >= 0 || hitK > 0 });
   ctx.restore();
 }
 
@@ -647,10 +745,13 @@ function stepGame() {
   const now = performance.now();
 
   updateCards(dt);
+  updateShards(dt);
   if (now - roundAt > 400) detectPunch(now);
 
   drawNet(ctx);
   drawCards(ctx, now);
+  drawShards(ctx);
+  drawPunch(ctx, now);
 
   // 네모곰
   const br = fluidPx(dims, 23, { min: 17, max: 31 });
