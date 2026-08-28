@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>숫자 골 넣기 · 종목 1</title>
+<title>베이스 송구 · 종목 1</title>
 <link rel="stylesheet" href="../css/style.css?v=6">
 </head>
 <body>
@@ -18,7 +18,7 @@
   </div>
 
   <div class="overlay-panel" id="loadingPanel">
-    <h2>⚽ 숫자 골 넣기</h2>
+    <h2>⚾ 베이스 송구</h2>
     <p id="loadingText">준비 중…</p>
   </div>
 
@@ -28,7 +28,7 @@
         <div class="rule-char">🐰</div>
         <div>
           <div class="rule-name">깡총이</div>
-          <h2 class="rule-title">숫자 골 넣기</h2>
+          <h2 class="rule-title">베이스 송구</h2>
         </div>
       </div>
       <p class="rule-cheer"></p>
@@ -55,8 +55,8 @@
   <div class="overlay-panel" id="resultPanel" style="display:none">
     <div id="podium"></div>
     <div class="result-stats">
-      <div class="stat-box"><div class="num" id="statCount">0골</div><div class="label">성공한 골</div></div>
-      <div class="stat-box"><div class="num" id="statBest">0골</div><div class="label">최고 기록</div></div>
+      <div class="stat-box"><div class="num" id="statCount">0번</div><div class="label">잡은 아웃</div></div>
+      <div class="stat-box"><div class="num" id="statBest">0번</div><div class="label">최고 기록</div></div>
       <div class="stat-box"><div class="num" id="statCombo">0</div><div class="label">최고 콤보</div></div>
     </div>
     <video class="preview" id="previewVideo" controls playsinline style="display:none"></video>
@@ -92,8 +92,8 @@ import {
 requestWakeLock();
 
 const UNIT = "f1";
-const TITLE = "숫자 골 넣기";
-const RECORD_SUFFIX = "골";
+const TITLE = "베이스 송구";
+const RECORD_SUFFIX = "번 아웃";
 const MEDALS = { bronze: 5, silver: 9, gold: 13 };
 const CHAR = CHARACTERS[UNIT];
 const mode = InputMode.get();
@@ -121,8 +121,8 @@ function randInt(min, max) { return min + Math.floor(Math.random() * (max - min 
 function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 
 // ---------------------------------------------------------------------------
-// 골문 만들기 — 골문들은 수직선을 빈틈없이 나눠 가지므로,
-// 어떤 수가 내려와도 들어갈 곳이 정확히 하나다. "어디에도 못 넣는" 일이 없다.
+// 베이스 만들기 — 베이스들은 수직선을 빈틈없이 나눠 가지므로,
+// 어떤 수가 내려와도 보낼 곳이 정확히 하나다. "어디에도 못 보내는" 일이 없다.
 // ---------------------------------------------------------------------------
 function genRound(level) {
   if (level === 1) {
@@ -136,20 +136,20 @@ function genRound(level) {
     const n = Math.max(1, t + randInt(-5, 5));
     return {
       n, gates, fallMs: 5000,
-      title: "숫자를 알맞은 골문에 넣어요!",
+      title: "숫자를 알맞은 베이스로 보내요!",
       hint: incl ? "이하는 그 수를 포함해요. 초과는 포함하지 않아요" : "미만은 그 수를 포함하지 않아요. 이상은 포함해요",
     };
   }
   if (level === 2) {
     // 올림 / 버림 — 십의 자리까지
     const up = Math.random() < 0.5;
-    const base = randInt(1, 4) * 10;                 // 골문 3개의 시작값
+    const base = randInt(1, 4) * 10;                 // 베이스 3개의 시작값
     const vals = [base + 10, base + 20, base + 30];
     const gates = vals.map((v) => ({
       label: `${up ? "올림" : "버림"} → ${v}`,
       test: (n) => (up ? Math.ceil(n / 10) * 10 : Math.floor(n / 10) * 10) === v,
     }));
-    // 세 골문 중 하나에 반드시 들어가는 수를 고른다
+    // 세 베이스 중 하나에 반드시 들어가는 수를 고른다
     const pick = vals[randInt(0, 2)];
     const n = up ? randInt(pick - 9, pick) : randInt(pick, pick + 9);
     return {
@@ -158,7 +158,7 @@ function genRound(level) {
       hint: up ? "남은 자리가 0이 아니면 무조건 올려요" : "남은 자리는 무조건 버려요",
     };
   }
-  // ⭐3 반올림 — 골문 4개
+  // ⭐3 반올림 — 베이스 4개
   const vals = [10, 20, 30, 40];
   const gates = vals.map((v) => ({
     label: `반올림 → ${v}`,
@@ -195,16 +195,16 @@ async function init() {
 
   await showRuleCard({
     unit: UNIT,
-    title: "숫자 골 넣기",
+    title: "베이스 송구",
     lines: [
-      "위에서 <b>숫자 공</b>이 하나 내려와요. 아래에는 <b>골문</b>이 여러 개 있어요.",
+      "야수가 된 거예요! 위에서 <b>숫자 공</b>이 날아와요. 아래에는 <b>베이스</b>가 여러 개 있어요.",
       mode === "motion"
-        ? "<b>손을 좌우로 움직이면</b> 공이 따라와요. 조건에 맞는 골문 위로 옮기세요!"
-        : "<b>화면에서 좌우로 움직이면</b> 공이 따라와요. 조건에 맞는 골문 위로 옮기세요!",
+        ? "<b>손을 좌우로 움직이면</b> 공이 따라와요. 조건에 맞는 베이스 위로 옮기세요!"
+        : "<b>화면에서 좌우로 움직이면</b> 공이 따라와요. 조건에 맞는 베이스 위로 옮기세요!",
       mode === "motion"
-        ? "골문을 정했으면 <b>손을 아래로 쑥 내려</b> 공을 떨어뜨려요! (그냥 두면 저절로 내려가요)"
-        : "골문을 정했으면 <b>화면을 눌러</b> 공을 떨어뜨려요! (그냥 두면 저절로 내려가요)",
-      "골문마다 <b>수의 범위 조건</b>이 붙어 있어요. 공의 수가 어디에 들어가는지 판단해요.",
+        ? "베이스를 정했으면 <b>손을 아래로 쑥 내려</b> 공을 송구해요! (그냥 두면 저절로 내려가요)"
+        : "베이스를 정했으면 <b>화면을 눌러</b> 공을 송구해요! (그냥 두면 저절로 내려가요)",
+      "베이스마다 <b>수의 범위 조건</b>이 붙어 있어요. 알맞은 곳으로 보내면 <b>아웃!</b>",
       "⭐1 <b>이상·이하·초과·미만</b> → ⭐2 <b>올림·버림</b> → ⭐3 <b>반올림</b>",
     ],
   });
@@ -232,7 +232,7 @@ const recIndicator = document.getElementById("recIndicator");
 let cursors = [];
 let lastFrameAt = 0;
 
-// 골문이 놓이는 줄 — 공이 이 높이에 닿으면 판정한다
+// 베이스가 놓인 줄 — 공이 이 높이에 닿으면 판정한다
 function goalLineY() { return dims.h * 0.76; }
 // 공이 나오는 높이 — 문제 배너에 가리면 숫자를 못 읽으므로 그 아래에서 시작한다
 function ballStartY() { return dims.h * 0.36; }
@@ -309,7 +309,7 @@ function beginPlay() {
 
 function judge() {
   resolving = true;
-  // 골문이 수직선을 빈틈없이 나눠 가지므로 가장 가까운 골문이 곧 들어간 골문이다
+  // 베이스가 수직선을 빈틈없이 나눠 가지므로 가장 가까운 베이스가 곧 공이 간 베이스다
   let idx = 0, bestD = Infinity;
   for (let i = 0; i < gates.length; i++) {
     const d = Math.abs(ball.x - gates[i].x);
@@ -337,7 +337,7 @@ function judge() {
       if (!isMuted()) sound.fever();
     }
   } else {
-    party.wrong(g.x, goalLineY(), "조건을 다시 봐요!");
+    party.wrong(g.x, goalLineY(), "세이프! 다시 봐요");
     autoDiff.reportWrong();
     shake.trigger(6, 170);
     if (!isMuted()) sound.wrong();
@@ -356,8 +356,8 @@ function endGame() {
   }
   renderPodium({ unit: UNIT, medal, label, coins: party.coins, maxCombo: party.maxCombo, count, suffix: RECORD_SUFFIX, best });
 
-  document.getElementById("statCount").textContent = count + "골";
-  document.getElementById("statBest").textContent = best + "골";
+  document.getElementById("statCount").textContent = count + "번";
+  document.getElementById("statBest").textContent = best + "번";
   document.getElementById("statCombo").textContent = "🔥" + party.maxCombo;
 
   const shot = comboShot.captured ? comboShot : fallbackShot;
@@ -370,10 +370,10 @@ function endGame() {
   }
   document.getElementById("savePhotoBtn").onclick = async () => {
     const blob = await shot.toBlob((c, w, h) => drawPhotoOverlay(c, w, h, { title: TITLE, record: count + RECORD_SUFFIX, medal }));
-    downloadBlob(blob, `수학체육올림픽5_숫자골넣기_${formatFileTimestamp()}.png`);
+    downloadBlob(blob, `수학체육올림픽5_베이스송구_${formatFileTimestamp()}.png`);
   };
   document.getElementById("saveVideoBtn").onclick = () => {
-    if (recordedBlob) downloadBlob(recordedBlob, `수학체육올림픽5_숫자골넣기_${formatFileTimestamp()}.${recorder.extension}`);
+    if (recordedBlob) downloadBlob(recordedBlob, `수학체육올림픽5_베이스송구_${formatFileTimestamp()}.${recorder.extension}`);
   };
   document.getElementById("resultPanel").style.display = "flex";
   if (!isMuted()) sound.success();
@@ -401,7 +401,7 @@ function goReady() {
   }, 500);
 }
 
-// ── 떨어뜨리기: 손을 아래로 내리거나 화면을 누르면 곧장 골문으로 ──
+// ── 송구: 손을 아래로 내리거나 화면을 누르면 곧장 베이스로 ──
 function dropBall() {
   if (resolving || !ball || ball.dropped) return;
   ball.dropped = true;
@@ -426,7 +426,7 @@ function detectDrop(now) {
   if (pointerInput && pointerInput.consumeJustDown()) dropBall();
 }
 
-// ── 골문 ──
+// ── 베이스 (필드형 경쟁: 알맞은 베이스로 공을 보낸다) ──
 function drawGates(ctx, now) {
   const { w, h } = dims;
   const gy = goalLineY();
@@ -438,25 +438,32 @@ function drawGates(ctx, now) {
 
     ctx.save();
     ctx.translate(shakeX, 0);
-    // 골대 그물
+    // 흙 구역 — 베이스가 놓인 자리
     ctx.fillStyle = judged
-      ? (judgedOk ? "rgba(81,207,102,0.32)" : "rgba(255,140,90,0.30)")
-      : "rgba(255,255,255,0.20)";
+      ? (judgedOk ? "rgba(81,207,102,0.30)" : "rgba(255,140,90,0.28)")
+      : "rgba(201,111,74,0.30)";
     ctx.fillRect(g.x - g.w / 2, gy, g.w, gh);
-    ctx.strokeStyle = "rgba(255,255,255,0.75)";
-    ctx.lineWidth = 1.5;
-    const step = Math.max(10, g.w / 9);
+    // 구역을 가르는 하얀 라인
+    ctx.strokeStyle = "rgba(255,255,255,0.85)";
+    ctx.lineWidth = fluidPx(dims, 3, { min: 2, max: 4.5 });
     ctx.beginPath();
-    for (let x = g.x - g.w / 2; x <= g.x + g.w / 2 + 0.5; x += step) { ctx.moveTo(x, gy); ctx.lineTo(x, gy + gh); }
-    for (let y = gy; y <= gy + gh + 0.5; y += step) { ctx.moveTo(g.x - g.w / 2, y); ctx.lineTo(g.x + g.w / 2, y); }
+    ctx.moveTo(g.x - g.w / 2, gy); ctx.lineTo(g.x - g.w / 2, gy + gh);
+    ctx.moveTo(g.x + g.w / 2, gy); ctx.lineTo(g.x + g.w / 2, gy + gh);
+    ctx.moveTo(g.x - g.w / 2, gy); ctx.lineTo(g.x + g.w / 2, gy);
     ctx.stroke();
-    // 골대 기둥
-    ctx.strokeStyle = judged ? (judgedOk ? CUTE.greenDark : CUTE.orangeDark) : "#fff";
-    ctx.lineWidth = fluidPx(dims, 6, { min: 4, max: 9 });
-    ctx.lineCap = "round";
+
+    // 베이스 — 하얀 마름모
+    const bs = Math.min(g.w * 0.30, gh * 0.46);
+    const bx = g.x, by = gy + gh * 0.55;
     ctx.beginPath();
-    ctx.moveTo(g.x - g.w / 2, gy + gh); ctx.lineTo(g.x - g.w / 2, gy);
-    ctx.lineTo(g.x + g.w / 2, gy); ctx.lineTo(g.x + g.w / 2, gy + gh);
+    ctx.moveTo(bx, by - bs); ctx.lineTo(bx + bs, by);
+    ctx.lineTo(bx, by + bs); ctx.lineTo(bx - bs, by);
+    ctx.closePath();
+    ctx.fillStyle = judged ? (judgedOk ? CUTE.green : CUTE.orangeDark) : "#fdfdf6";
+    ctx.fill();
+    ctx.strokeStyle = CUTE.ink;
+    ctx.lineWidth = fluidPx(dims, 3.5, { min: 2.5, max: 5 });
+    ctx.lineJoin = "round";
     ctx.stroke();
     ctx.restore();
 
@@ -494,7 +501,7 @@ function drawBall(ctx, now) {
     ctx.restore();
   }
 
-  // 어느 골문으로 향하는지 바닥에 그림자로 알려 준다
+  // 어느 베이스로 향하는지 바닥에 그림자로 알려 준다
   ctx.save();
   ctx.globalAlpha = 0.25;
   ctx.fillStyle = CUTE.ink;
@@ -570,7 +577,7 @@ function stepGame() {
     }
     detectDrop(now);
     if (ball.dropped) {
-      // 떨어뜨리면 곧장 골문으로 — 기다리지 않고 바로 결과를 본다
+      // 송구하면 곧장 베이스로 — 기다리지 않고 바로 결과를 본다
       ball.y += dims.h * 2.6 * dt;
     } else {
       const startY = ballStartY();
@@ -588,7 +595,7 @@ function stepGame() {
   const br = fluidPx(dims, 22, { min: 16, max: 30 });
   drawMascot(ctx, w * 0.95, h * 0.40, br, CHAR, party.currentMood(remain));
 
-  const hudBottom = party.drawHud(ctx, dims, { remainMs: remain, count, suffix: "골" });
+  const hudBottom = party.drawHud(ctx, dims, { remainMs: remain, count, suffix: "아웃" });
 
   drawCuteBanner(ctx, dims, [
     { text: round.title, size: 24, chunky: true, color: PARTY.gold },
@@ -596,7 +603,7 @@ function stepGame() {
   ], fluidPx, { top: hudBottom });
 
   drawChunkyText(ctx,
-    mode === "motion" ? "좌우로 골문을 고르고, 손을 내려 떨어뜨려요!" : "좌우로 골문을 고르고, 눌러서 떨어뜨려요!",
+    mode === "motion" ? "좌우로 베이스를 고르고, 손을 내려 송구해요!" : "좌우로 베이스를 고르고, 눌러서 송구해요!",
     w * 0.5, h * 0.96, fluidPx(dims, 15, { min: 11, max: 20 }), "#fff",
     { outline: CUTE.ink, outlineWidth: fluidPx(dims, 5, { min: 3.5, max: 7 }) });
 
