@@ -72,8 +72,9 @@
 <script type="module">
 import {
   HighScore, requestWakeLock, SoundKit, FileAudioLoop,
-  HandTracker, ClipRecorder, downloadBlob,
-  drawMirroredVideo, fitCanvasToScreen, isHandRaised, getCursors,
+  ClipRecorder, downloadBlob,
+  drawMirroredVideo, fitCanvasToScreen, getCursors,
+  PoseTracker, PoseMotion, posePoints, isArmRaised,
   AutoDifficulty, levelFromUrl, medalFor,
   scheduleAutoRecording, ComboShot, drawPhotoOverlay,
   ScreenShake, InputMode, PointerInput, StartGate,
@@ -86,7 +87,7 @@ import {
   drawBunting, drawGloveCursor, drawLevelStars, drawCuteBanner,
 } from "../js/cute.js?v=7";
 import {
-  PARTY, CHARACTERS, Party, HandPair, drawTwoHandHint,
+  PARTY, CHARACTERS, Party, drawTwoHandHint,
   drawPartyBackdrop, drawCrowd, drawMascot,
   showRuleCard, renderPodium, irisTransition,
 } from "../js/party.js?v=2";
@@ -113,7 +114,8 @@ const sound = new SoundKit();
 const bgm = new FileAudioLoop("../assets/sounds/subbgm.mp3", 0.32);
 const isMuted = () => localStorage.getItem("smo_muted") === "1";
 const party = new Party({ unit: UNIT, sound, isMuted });
-const hands = new HandPair();
+const poseTracker = new PoseTracker();
+const motion = new PoseMotion();
 
 function goHome() { bgm.stop(); irisTransition(() => { location.href = "../index.html"; }); }
 document.getElementById("homeBtn").addEventListener("click", goHome);
@@ -121,7 +123,7 @@ document.getElementById("homeBtn2").addEventListener("click", goHome);
 
 function randInt(min, max) { return min + Math.floor(Math.random() * (max - min + 1)); }
 
-const handTracker = new HandTracker();
+// (전신 인식으로 대체됨)
 let pointerInput = null;
 
 async function init() {
@@ -135,7 +137,7 @@ async function init() {
       return;
     }
     document.getElementById("loadingText").textContent = "AI 모델을 불러오는 중…";
-    await handTracker.init(2);
+    await poseTracker.init();
   } else {
     pointerInput = new PointerInput(canvas);
   }
@@ -145,7 +147,10 @@ async function init() {
     unit: UNIT,
     title: "대칭 미러 수비",
     lines: [
-      "<b>한 손은 날아온 타구에</b>, <b>다른 손은 그 대칭인 자리에</b> 동시에 대야 아웃!",
+      "<b>한 손은 날아온 타구에</b>, <b>다른 손은 그 대칭인 자리에</b> 동시에 닿아야 아웃!",
+      mode === "motion"
+        ? "가만히 대고 있으면 안 돼요. <b>팔을 휙 휘둘러 쳐내야</b> 아웃이 됩니다!"
+        : "가만히 있으면 안 돼요. 자리를 잡고 <b>화면을 눌러</b> 쳐내세요!",
       "손을 움직이면 반대편에 <b>거울 손</b>이 같이 움직여요. 그 거울 손을 타구에 맞추면 돼요.",
       "두 손이 대칭이 되면 손 사이에 <b>초록 줄</b>이 켜져요.",
       mode !== "motion" ? "손가락이 하나면 <b>대칭인 자리만</b> 짚으면 돼요 (공을 짚는 게 아니에요)." : "",
@@ -164,7 +169,10 @@ const holdFill = document.getElementById("holdFill");
 const startGate = new StartGate(mode, holdFill);
 
 let autoDiff, count, playEndAt;
-let sym, ball, roundAt, resolving, dwell = 0, missMark = null;
+let sym, ball, roundAt, resolving, missMark = null;
+let swingFx = 0;          // 쳐낸 순간의 궤적 표시
+// 어깨 너비의 이만큼을 1초에 지나가야 "휘둘렀다"고 본다 — 멈춰 있으면 판정되지 않는다
+const SWING_SPEED = 1.1;
 let confetti = [], sparks = [];
 const shake = new ScreenShake();
 let recorder, comboShot, fallbackShot, autoRec, recordedBlob = null;
@@ -230,7 +238,7 @@ function newRound() {
   const b = spawnBall(s);
   if (!b) { newRound(); return; }
   sym = s; ball = b;
-  resolving = false; dwell = 0; missMark = null;
+  resolving = false; missMark = null; swingFx = 0; motion.reset();
   roundAt = performance.now();
 }
 
@@ -261,7 +269,7 @@ function beginPlay() {
   autoDiff = new AutoDifficulty(levelFromUrl(AutoDifficulty.startLevelFromHighScore(prev)));
   count = 0;
   party.reset();
-  hands.reset();
+  motion.reset();
   confetti = []; sparks = [];
   playEndAt = performance.now() + 60000;
   lastFrameAt = 0;
@@ -365,7 +373,10 @@ function goReady() {
 // 두 손 얻기 — 마우스는 손이 하나뿐이라 반대쪽을 자동으로 미러링해 준다
 function getPair() {
   if (mode === "motion") {
-    return hands.both ? { a: hands.left, b: hands.right, auto: false } : null;
+    const f = motion.last;
+    if (!f) return null;
+    // 화면 왼쪽에 있는 손목을 a로 삼는다 (좌우가 뒤바뀌어도 판정이 흔들리지 않게)
+    return (f.lw.x <= f.rw.x) ? { a: f.lw, b: f.rw, auto: false } : { a: f.rw, b: f.lw, auto: false };
   }
   const pts = pointerInput ? pointerInput.points : [];
   if (pts.length >= 2) {
@@ -390,19 +401,34 @@ function loop(tsMs) {
 
   let result = null;
   if (mode === "motion") {
-    result = handTracker.detect(video, tsMs);
+    result = poseTracker.detect(video, tsMs);
+    motion.push(tsMs, posePoints(result), w, h, video);
     if (state === "raise") {
-      let raised = 0;
-      if (result && result.landmarks) for (const lm of result.landmarks) if (isHandRaised(lm)) raised++;
-      if (startGate.update(tsMs, raised >= 2)) goReady();
+      if (startGate.update(tsMs, isArmRaised(posePoints(result)))) goReady();
     }
   }
   cursors = getCursors(mode, result, w, h, video, pointerInput);
-  hands.update(cursors);
 
   if (state === "playing") stepGame();
 
-  for (const c of cursors) drawGloveCursor(ctx, c.x, c.y, fluidPx(dims, 42, { min: 30, max: 58 }), { active: dwell > 0 });
+  if (mode === "motion") {
+    const f = motion.last;
+    if (f) {
+      const sw = motion.swing();
+      const fast = sw && sw.speed > SWING_SPEED;
+      const r = fluidPx(dims, 24, { min: 17, max: 34 });
+      for (const k of ["lw", "rw"]) {
+        drawSticker(ctx, f[k].x, f[k].y, fast ? r * 1.2 : r,
+          fast ? PARTY.gold : "rgba(255,255,255,0.8)", { lineWidth: Math.max(3, r * 0.14) });
+      }
+    } else if (state === "playing") {
+      drawChunkyText(ctx, "카메라에 몸이 보이게 한 걸음 물러서 주세요!", w * 0.5, h * 0.5,
+        fluidPx(dims, 22, { min: 16, max: 30 }), "#fff",
+        { outline: CUTE.ink, outlineWidth: fluidPx(dims, 6, { min: 4, max: 8 }) });
+    }
+  } else {
+    for (const c of cursors) drawGloveCursor(ctx, c.x, c.y, fluidPx(dims, 42, { min: 30, max: 58 }), { active: false });
+  }
   ctx.restore();
 }
 
@@ -440,10 +466,18 @@ function stepGame() {
     symOk = Math.hypot(mb.x - pair.b.x, mb.y - pair.b.y) < R * 0.9;
   }
   if (!resolving && armed) {
-    dwell = good ? dwell + dt * 1000 : Math.max(0, dwell - dt * 800);
-    if (dwell > 280) succeed();
+    // 멈춰서 자세만 잡고 있으면 안 된다 — 대칭 자리를 "지나가며 쳐내야" 아웃이다
+    let fast = false;
+    if (mode === "motion") {
+      const sw = motion.swing();
+      fast = !!(sw && sw.speed > SWING_SPEED);
+    } else {
+      fast = !!(pointerInput && pointerInput.consumeJustDown());
+    }
+    if (good && fast) { swingFx = 1; succeed(); }
     else if (now - roundAt > roundLimitMs()) fail();
   }
+  if (swingFx > 0) swingFx = Math.max(0, swingFx - dt * 2.5);
 
   // ── 필드 ────────────────────────────────────────────────
   ctx.save();
@@ -517,14 +551,7 @@ function stepGame() {
   }
 
   // 대응점에 손이 닿아 있으면 게이지가 찬다
-  if (dwell > 0 && !resolving) {
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(ball.m.x, ball.m.y, R * 0.62, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, dwell / 280));
-    ctx.strokeStyle = CUTE.cyan; ctx.lineWidth = fluidPx(dims, 6, { min: 4, max: 9 });
-    ctx.lineCap = "round"; ctx.stroke();
-    ctx.restore();
-  }
+
 
   // 놓쳤을 때만 정답 자리를 보여 준다
   if (missMark) {
@@ -548,7 +575,7 @@ function stepGame() {
       : "한 손은 타구에, 다른 손은 대칭인 자리에!", size: 14, color: CUTE.ink },
   ], fluidPx, { top: hudBottom });
 
-  if (mode === "motion" && !hands.both) drawTwoHandHint(ctx, dims, fluidPx);
+  if (mode === "motion" && !motion.last) drawTwoHandHint(ctx, dims, fluidPx);
 
   party.update(dt);
   confetti = updateConfetti(confetti, dt); drawConfetti(ctx, confetti);
