@@ -6,6 +6,7 @@ import {
   HandLandmarker,
   GestureRecognizer,
   FaceLandmarker,
+  PoseLandmarker,
   FilesetResolver,
 } from "./vision_bundle.mjs";
 
@@ -14,6 +15,7 @@ const WASM_DIR = new URL("wasm", ROOT).href;
 const HAND_MODEL = new URL("models/hand_landmarker.task", ROOT).href;
 const GESTURE_MODEL = new URL("models/gesture_recognizer.task", ROOT).href;
 const FACE_MODEL = new URL("models/face_landmarker.task", ROOT).href;
+const POSE_MODEL = new URL("models/pose_landmarker_lite.task", ROOT).href;
 
 // -------------------- 기본 유틸 --------------------
 
@@ -562,6 +564,144 @@ export class HandTracker {
     return this.lastResult;
   }
   close() { if (this.landmarker) this.landmarker.close(); }
+}
+
+// -------------------- PoseLandmarker 래퍼 (전신) --------------------
+// 손만 볼 때는 팔을 휘둘렀는지 뛰었는지 알 수 없다. 전신 33개 점을 보면
+// 던지기·휘두르기·점프·몸 기울이기를 모두 판정할 수 있고, 손목 좌표도 함께 들어 있어
+// 기존의 "손으로 겨냥"도 그대로 된다. 손과 동시에 돌리지 않으므로 부담도 늘지 않는다.
+export class PoseTracker {
+  constructor() { this.landmarker = null; this.lastResult = null; }
+  async init() {
+    const fileset = await FilesetResolver.forVisionTasks(WASM_DIR);
+    this.landmarker = await PoseLandmarker.createFromOptions(fileset, {
+      baseOptions: { modelAssetPath: POSE_MODEL, delegate: "GPU" },
+      runningMode: "VIDEO",
+      numPoses: 1,
+    });
+  }
+  detect(videoEl, timestampMs) {
+    if (!this.landmarker) return null;
+    this.lastResult = this.landmarker.detectForVideo(videoEl, timestampMs);
+    return this.lastResult;
+  }
+  close() { if (this.landmarker) this.landmarker.close(); }
+}
+
+// 전신 동작 판정기 — 손목·어깨의 최근 궤적을 화면 좌표로 담아 두고
+// 휘두르기와 도약을 판정한다. 거리는 모두 "어깨 너비" 단위로 재므로
+// 카메라에서 멀리 있든 가까이 있든, 화면이 크든 작든 같은 기준이 된다.
+export class PoseMotion {
+  constructor(windowMs = 450) { this.windowMs = windowMs; this.buf = []; }
+  reset() { this.buf = []; }
+
+  // 매 프레임 호출. 화면(미러링된 캔버스) 좌표로 저장하므로 좌우가 학생이 보는 대로다.
+  push(now, lm, w, h, videoEl) {
+    if (!poseVisible(lm)) { this.buf = []; return null; }
+    const P = (i) => toMirroredCanvas(lm[i], w, h, videoEl);
+    const ls = P(POSE.LSHOULDER), rs = P(POSE.RSHOULDER);
+    const lh = P(POSE.LHIP), rh = P(POSE.RHIP);
+    const unit = Math.max(24, Math.hypot(ls.x - rs.x, ls.y - rs.y));   // 어깨 너비 = 1단위
+    const f = {
+      t: now, unit,
+      lw: P(POSE.LWRIST), rw: P(POSE.RWRIST),
+      sc: { x: (ls.x + rs.x) / 2, y: (ls.y + rs.y) / 2 },
+      hc: { x: (lh.x + rh.x) / 2, y: (lh.y + rh.y) / 2 },
+      tiltDeg: (Math.atan2(rs.y - ls.y, rs.x - ls.x) * 180) / Math.PI,
+    };
+    this.buf.push(f);
+    while (this.buf.length && now - this.buf[0].t > this.windowMs) this.buf.shift();
+    return f;
+  }
+
+  get last() { return this.buf.length ? this.buf[this.buf.length - 1] : null; }
+
+  // 지금으로부터 ms 이전의 프레임 (없으면 가장 오래된 것)
+  _back(ms) {
+    const last = this.last;
+    if (!last) return null;
+    for (let i = this.buf.length - 1; i >= 0; i--) if (last.t - this.buf[i].t >= ms) return this.buf[i];
+    return this.buf[0];
+  }
+
+  // 더 빠르게 움직인 쪽 손목의 속도와 방향. speed 단위는 "어깨 너비 / 초"
+  swing(ms = 180) {
+    const last = this.last, o = this._back(ms);
+    if (!last || !o || last.t <= o.t) return null;
+    const dt = (last.t - o.t) / 1000;
+    let best = null;
+    for (const k of ["lw", "rw"]) {
+      const dx = last[k].x - o[k].x, dy = last[k].y - o[k].y;
+      const speed = Math.hypot(dx, dy) / last.unit / dt;
+      if (!best || speed > best.speed) {
+        best = { hand: k, speed, dx, dy, x: last[k].x, y: last[k].y, angle: Math.atan2(dy, dx) };
+      }
+    }
+    return best;
+  }
+
+  // 도약 — 서서 뛰면 어깨가 솟고, 앉아서 하면 두 팔이 솟는다. 둘 중 큰 쪽을 세기로 삼아
+  // 교실에서 서든 앉든 모두 인식되게 한다.
+  jump(ms = 320) {
+    const last = this.last, o = this._back(ms);
+    if (!last || !o) return null;
+    const bodyRise = (o.sc.y - last.sc.y) / last.unit;
+    // 팔로 하는 도약은 "두 팔이 함께" 솟구쳐 어깨 위로 올라갔을 때만 인정한다.
+    // 한 손만 드는 것은 겨냥하려는 동작이므로 도약과 반드시 구분해야 한다.
+    const riseL = (o.lw.y - last.lw.y) / last.unit;
+    const riseR = (o.rw.y - last.rw.y) / last.unit;
+    const bothAboveShoulder = last.lw.y < last.sc.y && last.rw.y < last.sc.y;
+    const armRise = bothAboveShoulder ? Math.min(riseL, riseR) : 0;
+    return { bodyRise, armRise, power: Math.max(bodyRise * 1.6, armRise) };
+  }
+}
+
+// 자주 쓰는 관절 번호 (MediaPipe Pose 33점)
+export const POSE = {
+  NOSE: 0,
+  LSHOULDER: 11, RSHOULDER: 12,
+  LELBOW: 13, RELBOW: 14,
+  LWRIST: 15, RWRIST: 16,
+  LHIP: 23, RHIP: 24,
+  LKNEE: 25, RKNEE: 26,
+  LANKLE: 27, RANKLE: 28,
+};
+
+// 결과에서 첫 사람의 랜드마크만 꺼낸다 (없으면 null)
+export function posePoints(result) {
+  if (!result || !result.landmarks || !result.landmarks.length) return null;
+  return result.landmarks[0];
+}
+
+// 어깨와 엉덩이가 충분히 보이는지 — 얼굴만 잡히면 동작 판정이 엉망이 된다
+export function poseVisible(lm, minVis = 0.4) {
+  if (!lm) return false;
+  const need = [POSE.LSHOULDER, POSE.RSHOULDER];
+  return need.every((i) => lm[i] && (lm[i].visibility ?? 1) > minVis);
+}
+
+// 몸 크기(어깨 너비) — 카메라와의 거리에 상관없이 같은 기준으로 속도를 재려면 필요하다.
+// 어깨가 잘 안 보이면 몸통 세로 길이로 대신한다.
+export function poseScale(lm) {
+  if (!lm) return 0.2;
+  const a = lm[POSE.LSHOULDER], b = lm[POSE.RSHOULDER];
+  const w = Math.hypot(a.x - b.x, a.y - b.y);
+  if (w > 0.05) return w;
+  const sc = midpoint(lm[POSE.LSHOULDER], lm[POSE.RSHOULDER]);
+  const hc = midpoint(lm[POSE.LHIP], lm[POSE.RHIP]);
+  const h = Math.abs(sc.y - hc.y);
+  return Math.max(0.08, h * 0.7);
+}
+
+export function midpoint(a, b) {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, visibility: Math.min(a.visibility ?? 1, b.visibility ?? 1) };
+}
+
+// 손을 들었는가 — 손목이 어깨보다 위에 있으면 든 것으로 본다 (시작 관문용)
+export function isArmRaised(lm) {
+  if (!poseVisible(lm)) return false;
+  const sy = midpoint(lm[POSE.LSHOULDER], lm[POSE.RSHOULDER]).y;
+  return lm[POSE.LWRIST].y < sy || lm[POSE.RWRIST].y < sy;
 }
 
 export class GestureTracker {

@@ -72,14 +72,15 @@
 <script type="module">
 import {
   HighScore, requestWakeLock, SoundKit, FileAudioLoop,
-  HandTracker, ClipRecorder, downloadBlob,
-  drawMirroredVideo, fitCanvasToScreen, isHandRaised, getCursors,
+  ClipRecorder, downloadBlob,
+  drawMirroredVideo, fitCanvasToScreen, getCursors,
+  PoseTracker, PoseMotion, posePoints, poseVisible, isArmRaised, POSE, toMirroredCanvas,
   AutoDifficulty, levelFromUrl, medalFor,
   scheduleAutoRecording, ComboShot, drawPhotoOverlay,
   ScreenShake, InputMode, PointerInput, StartGate,
   startCamera, formatFileTimestamp, fluidPx, showSoundHint,
   drawVignette, spawnConfetti, updateConfetti, drawConfetti,
-} from "../js/engine.js?v=3";
+} from "../js/engine.js?v=4";
 import {
   CUTE, LANE_COLORS, bob, drawSticker, drawStickerRect, drawChunkyText,
   spawnSparkles, updateSparkles, drawSparkles, makeDrifters, drawDrifters,
@@ -187,7 +188,8 @@ function genRound(level) {
   };
 }
 
-const handTracker = new HandTracker();
+const poseTracker = new PoseTracker();
+const motion = new PoseMotion();
 let pointerInput = null;
 
 async function init() {
@@ -200,8 +202,8 @@ async function init() {
       document.getElementById("loadingText").textContent = "⚠️ 카메라를 찾을 수 없어요. 카메라 권한을 확인해주세요.";
       return;
     }
-    document.getElementById("loadingText").textContent = "AI 모델을 불러오는 중…";
-    await handTracker.init(1);
+    document.getElementById("loadingText").textContent = "전신 인식 모델을 불러오는 중…";
+    await poseTracker.init();
   } else {
     pointerInput = new PointerInput(canvas);
   }
@@ -213,8 +215,11 @@ async function init() {
     lines: [
       "위에 <b>소수의 곱셈</b> 문제가 나와요. 답을 계산해요.",
       mode === "motion"
-        ? "모래밭의 <b>착지 매트</b> 중 답이 적힌 곳에 <b>손을 올려 잠깐 유지</b>하면 도약!"
-        : "모래밭의 <b>착지 매트</b> 중 답이 적힌 곳을 <b>눌러서 잠깐 유지</b>하면 도약!",
+        ? "<b>손을 들어 좌우로 움직여</b> 답이 적힌 착지 매트를 겨눠요. 금색 테두리가 생겨요."
+        : "답이 적힌 착지 매트를 겨눠요. 금색 테두리가 생겨요.",
+      mode === "motion"
+        ? "겨눴으면 <b>힘껏 점프!</b> (앉아서 한다면 <b>두 팔을 위로 확 뻗어도</b> 돼요) 세게 뛸수록 높이 날아요."
+        : "겨눴으면 <b>화면을 눌러</b> 도약!",
       "맞으면 재보가 <b>멋지게 착지</b>하고 심판이 깃발을 들어요.",
       "오답 매트는 <b>소수점만 살짝 어긋난 수</b>예요. 자리 수를 잘 세어 보세요!",
     ],
@@ -233,7 +238,11 @@ const startGate = new StartGate(mode, holdFill);
 
 let autoDiff, count, playEndAt;
 let round = null, mats = [], roundAt, resolving;
-let aimIdx = -1, aimSince = 0, lockUntil = 0;
+let aimIdx = -1, lockUntil = 0;
+let poseLm = null;        // 이번 프레임의 전신 랜드마크
+let aimX = null;          // 손목으로 겨눈 좌우 위치
+let jumpPower = 0;        // 방금 도약한 세기 (연출용)
+let crouch = 0;           // 도약 직전 웅크림 표시
 let jump = null, flag = 0;
 let confetti = [], sparks = [];
 const shake = new ScreenShake();
@@ -242,7 +251,8 @@ const recIndicator = document.getElementById("recIndicator");
 let cursors = [];
 let lastFrameAt = 0;
 
-const AIM_MS = 340;   // 매트는 큰 표적이라, 지나가다 잘못 골라지지 않게 조금 길게 잡는다
+// 어깨 너비의 이만큼 솟구치면 "뛰었다"고 본다. 서서 점프하면 어깨가, 앉아서 하면 두 팔이 솟는다.
+const JUMP_POWER = 0.17;
 
 // 모래밭 영역 — 매트는 이 안에 나란히 놓인다
 function pit() {
@@ -272,6 +282,9 @@ function newRound() {
   aimIdx = -1;
   jump = null;
   flag = 0;
+  jumpPower = 1;
+  crouch = 0;
+  motion.reset();
   roundAt = performance.now();
 }
 
@@ -326,7 +339,7 @@ function beginPlay() {
 // 도움닫기 → 도약 — 고른 매트로 재보가 포물선을 그리며 날아간다
 function launch(mat, ok) {
   const { w, h } = dims;
-  jump = { fromX: w * 0.13, fromY: h * 0.74, toX: mat.x, toY: mat.y - mat.h * 0.5, at: performance.now(), ok };
+  jump = { fromX: w * 0.13, fromY: h * 0.74, toX: mat.x, toY: mat.y - mat.h * 0.5, at: performance.now(), ok, power: jumpPower };
   if (!isMuted()) sound.swoosh();
 }
 
@@ -428,20 +441,46 @@ function goReady() {
   }, 500);
 }
 
-// ── 매트 고르기: 매트 위에 손을 잠깐 얹으면 도약 ──
-function detectPick(now) {
-  if (resolving || now < lockUntil) { aimIdx = -1; return; }
-  const p = cursors[0];
-  if (!p) { aimIdx = -1; return; }
-  let idx = -1;
-  for (let i = 0; i < mats.length; i++) {
-    const m = mats[i];
-    if (Math.abs(p.x - m.x) < m.w / 2 && Math.abs(p.y - m.y) < m.h * 0.9) { idx = i; break; }
-  }
-  if (idx !== aimIdx) { aimIdx = idx; aimSince = now; return; }
-  if (idx < 0 || now - aimSince < AIM_MS) return;
-  const mat = mats[idx];
+// ── 조준: 손목 좌우 위치로 매트를 고른다 ──────────────────────────────────
+function updateAim() {
   aimIdx = -1;
+  if (resolving) { aimX = null; return; }
+  if (mode === "motion") {
+    const f = motion.last;
+    if (!f) { aimX = null; return; }
+    // 더 높이 든 손으로 겨눈다 — 한 손만 들어도, 두 손을 들어도 자연스럽다
+    aimX = (f.lw.y < f.rw.y) ? f.lw.x : f.rw.x;
+  } else {
+    const p = cursors[0];
+    aimX = p ? p.x : null;
+  }
+  if (aimX === null) return;
+  let best = Infinity;
+  for (let i = 0; i < mats.length; i++) {
+    const d = Math.abs(aimX - mats[i].x);
+    if (d < best) { best = d; aimIdx = i; }
+  }
+}
+
+// ── 도약: 실제로 뛰거나(어깨가 솟음) 두 팔을 힘껏 위로 뻗으면 날아오른다 ──
+function detectJump(now) {
+  if (resolving || now < lockUntil || aimIdx < 0) return;
+  if (mode !== "motion") {
+    if (pointerInput && pointerInput.consumeJustDown()) leap(1);
+    return;
+  }
+  const j = motion.jump();
+  if (!j) return;
+  crouch = Math.max(0, Math.min(1, -j.power * 3));   // 내려가는 중이면 웅크림으로 표시
+  if (j.power > JUMP_POWER) leap(j.power / JUMP_POWER);
+}
+
+function leap(power) {
+  const mat = mats[aimIdx];
+  if (!mat) return;
+  jumpPower = Math.max(1, Math.min(2.2, power));
+  motion.reset();
+  crouch = 0;
   if (Math.abs(mat.value - round.answer) < 1e-9) succeed(mat);
   else missed(mat);
 }
@@ -485,16 +524,22 @@ function drawMats(ctx, now) {
     drawChunkyText(ctx, fmt(m.value), m.x, m.y, fs, "#fff",
       { outline: CUTE.ink, outlineWidth: Math.max(3, fs * 0.18) });
 
-    // 조준 링 — 얼마나 더 있으면 도약하는지 보여 준다
-    if (i === aimIdx) {
-      const t = Math.min(1, (now - aimSince) / AIM_MS);
+    // 지금 뛰면 착지할 매트 — 테두리와 화살표로 미리 알려 준다
+    if (i === aimIdx && !resolving) {
+      const pulse = 0.5 + 0.5 * Math.sin(now / 160);
       ctx.save();
-      ctx.beginPath();
-      ctx.arc(m.x, m.y, Math.max(m.w, m.h) * 0.62, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * t);
       ctx.strokeStyle = PARTY.gold;
       ctx.lineWidth = fluidPx(dims, 6, { min: 4, max: 9 });
-      ctx.lineCap = "round";
-      ctx.stroke();
+      ctx.lineJoin = "round";
+      ctx.strokeRect(m.x - m.w / 2 - 6, m.y - m.h / 2 - 6, m.w + 12, m.h + 12);
+      const ay = m.y - m.h * (1.1 + pulse * 0.12);
+      ctx.fillStyle = PARTY.gold;
+      ctx.beginPath();
+      ctx.moveTo(m.x, ay + m.h * 0.32);
+      ctx.lineTo(m.x - m.w * 0.10, ay);
+      ctx.lineTo(m.x + m.w * 0.10, ay);
+      ctx.closePath();
+      ctx.fill();
       ctx.restore();
     }
   }
@@ -508,10 +553,10 @@ function drawAthlete(ctx, now, remain) {
   if (jump) {
     const t = Math.min(1, (now - jump.at) / 620);
     x = jump.fromX + (jump.toX - jump.fromX) * t;
-    y = jump.fromY + (jump.toY - jump.fromY) * t - Math.sin(Math.PI * t) * h * 0.26;
+    y = jump.fromY + (jump.toY - jump.fromY) * t - Math.sin(Math.PI * t) * h * 0.26 * (jump.power || 1);
     spin = t * Math.PI * (jump.ok ? 2 : 0.6);
   } else {
-    y += Math.sin(now / 260) * r * 0.10;   // 제자리에서 통통
+    y += Math.sin(now / 260) * r * 0.10 + crouch * r * 0.5;   // 제자리에서 통통, 웅크리면 내려앉는다
   }
   ctx.save();
   ctx.translate(x, y);
@@ -551,19 +596,37 @@ function loop(tsMs) {
   drawCrowd(ctx, dims, party.cheerUntil);
 
   let result = null;
+  poseLm = null;
   if (mode === "motion") {
-    result = handTracker.detect(video, tsMs);
+    result = poseTracker.detect(video, tsMs);
+    poseLm = posePoints(result);
+    motion.push(tsMs, poseLm, w, h, video);
     if (state === "raise") {
-      let raised = false;
-      if (result && result.landmarks) for (const lm of result.landmarks) if (isHandRaised(lm)) raised = true;
-      if (startGate.update(tsMs, raised)) goReady();
+      if (startGate.update(tsMs, isArmRaised(poseLm))) goReady();
     }
   }
   cursors = getCursors(mode, result, w, h, video, pointerInput);
 
   if (state === "playing") stepGame();
 
-  for (const c of cursors) drawGloveCursor(ctx, c.x, c.y, fluidPx(dims, 44, { min: 32, max: 62 }), { active: aimIdx >= 0 });
+  // 손목 위치를 표시해 준다 — 내 손이 어디로 인식되는지 보이면 조준이 쉬워진다
+  if (mode === "motion") {
+    const f = motion.last;
+    if (f) {
+      const r = fluidPx(dims, 26, { min: 18, max: 36 });
+      const aimHand = (f.lw.y < f.rw.y) ? "lw" : "rw";
+      for (const k of ["lw", "rw"]) {
+        drawSticker(ctx, f[k].x, f[k].y, k === aimHand ? r : r * 0.7,
+          k === aimHand ? PARTY.gold : "rgba(255,255,255,0.75)", { lineWidth: Math.max(3, r * 0.14) });
+      }
+    } else if (state === "playing") {
+      drawChunkyText(ctx, "카메라에 몸이 보이게 한 걸음 물러서 주세요!", w * 0.5, h * 0.5,
+        fluidPx(dims, 22, { min: 16, max: 30 }), "#fff",
+        { outline: CUTE.ink, outlineWidth: fluidPx(dims, 6, { min: 4, max: 8 }) });
+    }
+  } else {
+    for (const c of cursors) drawGloveCursor(ctx, c.x, c.y, fluidPx(dims, 44, { min: 32, max: 62 }), { active: aimIdx >= 0 });
+  }
   ctx.restore();
 }
 
@@ -577,7 +640,8 @@ function stepGame() {
   if (remain <= 0) { endGame(); return; }
   const now = performance.now();
 
-  if (now - roundAt > 300) detectPick(now);
+  updateAim();
+  if (now - roundAt > 300) detectJump(now);
   for (const m of mats) {
     if (m.good > 0) m.good = Math.max(0, m.good - dt * 0.7);
     if (m.bad > 0) m.bad = Math.max(0, m.bad - dt * 0.7);
@@ -595,8 +659,11 @@ function stepGame() {
     { text: round.hint, size: 14, color: CUTE.ink },
   ], fluidPx, { top: hudBottom });
 
-  drawChunkyText(ctx, mode === "motion" ? "답이 적힌 매트에 손을 올려요!" : "답이 적힌 매트를 눌러요!",
-    w * 0.5, h * 0.95, fluidPx(dims, 16, { min: 12, max: 22 }), "#fff",
+  const guide = mode === "motion"
+    ? (aimIdx >= 0 ? "🏃 겨눴어요! 이제 힘껏 점프!" : "손을 들어 좌우로 움직여 매트를 겨눠요")
+    : "답이 적힌 매트를 겨누고 눌러요!";
+  drawChunkyText(ctx, guide, w * 0.5, h * 0.95, fluidPx(dims, 16, { min: 12, max: 22 }),
+    aimIdx >= 0 ? PARTY.gold : "#fff",
     { outline: CUTE.ink, outlineWidth: fluidPx(dims, 5, { min: 3.5, max: 7 }) });
 
   party.update(dt);
