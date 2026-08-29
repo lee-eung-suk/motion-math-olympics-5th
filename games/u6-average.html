@@ -72,8 +72,9 @@
 <script type="module">
 import {
   HighScore, requestWakeLock, SoundKit, FileAudioLoop,
-  HandTracker, ClipRecorder, downloadBlob,
-  drawMirroredVideo, fitCanvasToScreen, isHandRaised, getCursors,
+  ClipRecorder, downloadBlob,
+  drawMirroredVideo, fitCanvasToScreen, getCursors,
+  PoseTracker, PoseMotion, posePoints, isArmRaised,
   AutoDifficulty, levelFromUrl, medalFor,
   scheduleAutoRecording, ComboShot, drawPhotoOverlay,
   ScreenShake, InputMode, PointerInput, StartGate, SmoothedPoint,
@@ -182,7 +183,8 @@ function genRound(level) {
   return chanceTurn ? genChance() : genAverage(level);
 }
 
-const handTracker = new HandTracker();
+const poseTracker = new PoseTracker();
+const motion = new PoseMotion();
 let pointerInput = null;
 
 async function init() {
@@ -196,7 +198,7 @@ async function init() {
       return;
     }
     document.getElementById("loadingText").textContent = "AI 모델을 불러오는 중…";
-    await handTracker.init(1);
+    await poseTracker.init();
   } else {
     pointerInput = new PointerInput(canvas);
   }
@@ -411,10 +413,11 @@ function loop(tsMs) {
 
   let result = null;
   if (mode === "motion") {
-    result = handTracker.detect(video, tsMs);
+    result = poseTracker.detect(video, tsMs);
+    motion.push(tsMs, posePoints(result), w, h, video);
     if (state === "raise") {
       let raised = false;
-      if (result && result.landmarks) for (const lm of result.landmarks) if (isHandRaised(lm)) raised = true;
+      raised = isArmRaised(posePoints(result));
       if (startGate.update(tsMs, raised)) goReady();
     }
   }
@@ -453,10 +456,14 @@ function stepGame() {
   // ── 입력: 손 높이 = 값 ───────────────────────────────────
   if (!resolving) {
     if (cursors.length > 0) {
-      const p = smooth.push(cursors[0].x, cursors[0].y);
-      const y = Math.max(c.yTop, Math.min(c.yBot, p.y));
-      handV = snapV(yToV(y));
-      handBand = bandOf(y);
+      const f = motion.last;
+      const wy = f ? (f.lw.y + f.rw.y) / 2 : null;      // 두 손목의 평균 높이 = 균형대
+      const p = wy === null ? null : smooth.push((f.lw.x + f.rw.x) / 2, wy);
+      if (p) {
+        const y = Math.max(c.yTop, Math.min(c.yBot, p.y));
+        handV = snapV(yToV(y));
+        handBand = bandOf(y);
+      }
     }
     const ok = round.type === "chance"
       ? handBand !== null && Math.abs(handBand - round.answer) < 1e-9
@@ -578,7 +585,9 @@ function stepGame() {
 
   // ── 균형대 (손 높이) ────────────────────────────────────
   const barY = round.type === "chance"
-    ? (cursors.length ? Math.max(c.yTop, Math.min(c.yBot, smooth.push(cursors[0].x, cursors[0].y).y)) : null)
+    ? ((() => { const f = motion.last; if (!f) return null;
+        const q = smooth.push((f.lw.x + f.rw.x) / 2, (f.lw.y + f.rw.y) / 2);
+        return Math.max(c.yTop, Math.min(c.yBot, q.y)); })())
     : (handV !== null ? vToY(handV) : null);
   if (barY !== null && !resolving) {
     const ok = hold > 0;

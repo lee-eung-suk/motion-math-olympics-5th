@@ -72,8 +72,9 @@
 <script type="module">
 import {
   HighScore, requestWakeLock, SoundKit, FileAudioLoop,
-  HandTracker, ClipRecorder, downloadBlob,
-  drawMirroredVideo, fitCanvasToScreen, isHandRaised, getCursors,
+  ClipRecorder, downloadBlob,
+  drawMirroredVideo, fitCanvasToScreen, getCursors,
+  PoseTracker, PoseMotion, posePoints, isArmRaised,
   AutoDifficulty, levelFromUrl, medalFor,
   scheduleAutoRecording, ComboShot, drawPhotoOverlay,
   ScreenShake, InputMode, PointerInput, StartGate,
@@ -173,7 +174,8 @@ function genRound(level) {
   };
 }
 
-const handTracker = new HandTracker();
+const poseTracker = new PoseTracker();
+const motion = new PoseMotion();
 let pointerInput = null;
 
 async function init() {
@@ -187,7 +189,7 @@ async function init() {
       return;
     }
     document.getElementById("loadingText").textContent = "AI 모델을 불러오는 중…";
-    await handTracker.init(1);
+    await poseTracker.init();
   } else {
     pointerInput = new PointerInput(canvas);
   }
@@ -202,7 +204,7 @@ async function init() {
         ? "<b>손을 좌우로 움직이면</b> 공이 따라와요. 조건에 맞는 베이스 위로 옮기세요!"
         : "<b>화면에서 좌우로 움직이면</b> 공이 따라와요. 조건에 맞는 베이스 위로 옮기세요!",
       mode === "motion"
-        ? "베이스를 정했으면 <b>손을 아래로 쑥 내려</b> 공을 송구해요! (그냥 두면 저절로 내려가요)"
+        ? "베이스를 정했으면 <b>팔을 힘껏 휘둘러 던져요!</b> (그냥 두면 저절로 내려가요)"
         : "베이스를 정했으면 <b>화면을 눌러</b> 공을 송구해요! (그냥 두면 저절로 내려가요)",
       "베이스마다 <b>수의 범위 조건</b>이 붙어 있어요. 알맞은 곳으로 보내면 <b>아웃!</b>",
       "⭐1 <b>이상·이하·초과·미만</b> → ⭐2 <b>올림·버림</b> → ⭐3 <b>반올림</b>",
@@ -223,8 +225,9 @@ const startGate = new StartGate(mode, holdFill);
 let autoDiff, count, playEndAt;
 let round = null, gates = [], ball = null, roundAt, resolving;
 let netShake = 0, judgedIdx = -1, judgedOk = false;
-let handTrail = [];          // 최근 손 높이 — 아래로 내리는 동작을 잡는다
-let dropFlash = 0;           // 떨어뜨린 순간의 표시
+let dropFlash = 0;           // 송구한 순간의 표시
+// 어깨 너비의 이만큼을 1초에 지나가야 "던졌다"고 본다
+const THROW_SPEED = 1.3;
 let confetti = [], sparks = [];
 const shake = new ScreenShake();
 let recorder, comboShot, fallbackShot, autoRec, recordedBlob = null;
@@ -255,8 +258,8 @@ function newRound() {
   ball = { n: round.n, x: dims.w / 2, y: ballStartY(), r: 0, dropped: false };
   resolving = false;
   judgedIdx = -1;
-  handTrail = [];
   dropFlash = 0;
+  motion.reset();
   roundAt = performance.now();
 }
 
@@ -401,7 +404,7 @@ function goReady() {
   }, 500);
 }
 
-// ── 송구: 손을 아래로 내리거나 화면을 누르면 곧장 베이스로 ──
+// ── 송구: 팔을 힘껏 던지면 공이 그 자리에서 베이스로 날아간다 ──
 function dropBall() {
   if (resolving || !ball || ball.dropped) return;
   ball.dropped = true;
@@ -409,21 +412,15 @@ function dropBall() {
   if (!isMuted()) sound.swoosh();
 }
 
-function detectDrop(now) {
+function detectThrow(now) {
   if (resolving || !ball || ball.dropped) return;
-  if (mode === "motion") {
-    const p = cursors[0];
-    if (!p) { handTrail = []; return; }
-    handTrail.push({ t: now, y: p.y });
-    while (handTrail.length && now - handTrail[0].t > 240) handTrail.shift();
-    // 240 ms 안에 화면 높이의 9% 이상 손을 내리면 "떨어뜨렸다"고 본다
-    if (handTrail.length >= 3 && p.y - handTrail[0].y > dims.h * 0.09) {
-      dropBall();
-      handTrail = [];
-    }
+  if (mode !== "motion") {
+    if (pointerInput && pointerInput.consumeJustDown()) dropBall();
     return;
   }
-  if (pointerInput && pointerInput.consumeJustDown()) dropBall();
+  // 손목이 빠르게 지나가면 송구 — 겨냥은 그 순간의 손 위치가 그대로 방향이 된다
+  const sw = motion.swing();
+  if (sw && sw.speed > THROW_SPEED) { dropBall(); motion.reset(); }
 }
 
 // ── 베이스 (필드형 경쟁: 알맞은 베이스로 공을 보낸다) ──
@@ -542,18 +539,36 @@ function loop(tsMs) {
 
   let result = null;
   if (mode === "motion") {
-    result = handTracker.detect(video, tsMs);
+    result = poseTracker.detect(video, tsMs);
+    motion.push(tsMs, posePoints(result), w, h, video);
     if (state === "raise") {
-      let raised = false;
-      if (result && result.landmarks) for (const lm of result.landmarks) if (isHandRaised(lm)) raised = true;
-      if (startGate.update(tsMs, raised)) goReady();
+      if (startGate.update(tsMs, isArmRaised(posePoints(result)))) goReady();
     }
   }
   cursors = getCursors(mode, result, w, h, video, pointerInput);
 
   if (state === "playing") stepGame();
 
-  for (const c of cursors) drawGloveCursor(ctx, c.x, c.y, fluidPx(dims, 44, { min: 32, max: 62 }), { active: !resolving });
+  if (mode === "motion") {
+    const f = motion.last;
+    if (f) {
+      const sw = motion.swing();
+      const ready = sw && sw.speed > THROW_SPEED * 0.5;
+      const r = fluidPx(dims, 26, { min: 18, max: 36 });
+      const throwHand = (f.lw.y < f.rw.y) ? "lw" : "rw";
+      for (const k of ["lw", "rw"]) {
+        drawSticker(ctx, f[k].x, f[k].y, k === throwHand ? r : r * 0.7,
+          k === throwHand ? (ready ? PARTY.gold : CUTE.cream) : "rgba(255,255,255,0.7)",
+          { lineWidth: Math.max(3, r * 0.14) });
+      }
+    } else if (state === "playing") {
+      drawChunkyText(ctx, "카메라에 몸이 보이게 한 걸음 물러서 주세요!", w * 0.5, h * 0.5,
+        fluidPx(dims, 22, { min: 16, max: 30 }), "#fff",
+        { outline: CUTE.ink, outlineWidth: fluidPx(dims, 6, { min: 4, max: 8 }) });
+    }
+  } else {
+    for (const c of cursors) drawGloveCursor(ctx, c.x, c.y, fluidPx(dims, 44, { min: 32, max: 62 }), { active: !resolving });
+  }
   ctx.restore();
 }
 
@@ -569,13 +584,19 @@ function stepGame() {
 
   if (!resolving) {
     // 손을 따라 좌우로 — 급하게 튀지 않도록 부드럽게 따라붙는다
-    const p = cursors[0];
-    if (p) {
+    let px = null;
+    if (mode === "motion") {
+      const f = motion.last;
+      if (f) px = (f.lw.y < f.rw.y) ? f.lw.x : f.rw.x;   // 더 높이 든 손이 던지는 손
+    } else if (cursors[0]) {
+      px = cursors[0].x;
+    }
+    if (px !== null) {
       const margin = ball.r || dims.w * 0.04;
-      const target = Math.max(margin, Math.min(w - margin, p.x));
+      const target = Math.max(margin, Math.min(w - margin, px));
       ball.x += (target - ball.x) * Math.min(1, dt * 9);
     }
-    detectDrop(now);
+    detectThrow(now);
     if (ball.dropped) {
       // 송구하면 곧장 베이스로 — 기다리지 않고 바로 결과를 본다
       ball.y += dims.h * 2.6 * dt;
@@ -603,7 +624,7 @@ function stepGame() {
   ], fluidPx, { top: hudBottom });
 
   drawChunkyText(ctx,
-    mode === "motion" ? "좌우로 베이스를 고르고, 손을 내려 송구해요!" : "좌우로 베이스를 고르고, 눌러서 송구해요!",
+    mode === "motion" ? "손으로 베이스를 겨누고, 팔을 힘껏 휘둘러 던져요!" : "좌우로 베이스를 고르고, 눌러서 송구해요!",
     w * 0.5, h * 0.96, fluidPx(dims, 15, { min: 11, max: 20 }), "#fff",
     { outline: CUTE.ink, outlineWidth: fluidPx(dims, 5, { min: 3.5, max: 7 }) });
 
