@@ -355,16 +355,38 @@ body.landing{
 .landing-decor{
   position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;
 }
-.landing-decor span{
-  position:absolute;font-size:2.6rem;opacity:0.85;
-  filter:drop-shadow(0 4px 6px #00000018);
+/* 배경 장식 — 이모지 대신 CSS로 그린 구름과 옅은 수학기호 (포털과 같은 결) */
+.landing-decor .cloud{
+  position:absolute;display:block;width:150px;height:52px;
+  background:#fff;border-radius:999px;opacity:.85;
+  filter:drop-shadow(0 6px 0 rgba(30,41,59,.05));
 }
-.landing-decor .cloud1{top:6%;left:6%;font-size:3.2rem;animation:cloudFloat 22s ease-in-out infinite;}
-.landing-decor .cloud2{top:14%;right:10%;font-size:2.4rem;animation:cloudFloat 26s ease-in-out infinite reverse;}
-.landing-decor .cloud3{bottom:12%;left:14%;font-size:2rem;animation:cloudFloat 18s ease-in-out infinite;}
-.landing-decor .star1{top:10%;left:42%;font-size:1.6rem;animation:twinkle 2.4s ease-in-out infinite;}
-.landing-decor .star2{top:22%;right:26%;font-size:1.3rem;animation:twinkle 3.1s ease-in-out infinite .5s;}
-.landing-decor .star3{bottom:20%;right:8%;font-size:1.7rem;animation:twinkle 2.7s ease-in-out infinite 1s;}
+.landing-decor .cloud::before,.landing-decor .cloud::after{
+  content:'';position:absolute;background:#fff;border-radius:50%;
+}
+.landing-decor .cloud::before{width:66px;height:66px;top:-30px;left:24px;}
+.landing-decor .cloud::after{width:48px;height:48px;top:-22px;left:78px;}
+.landing-decor .c1{top:8%;left:-20%;transform:scale(.85);animation:drift 48s linear infinite;}
+.landing-decor .c2{top:26%;left:-30%;transform:scale(1.2);animation:drift 68s linear infinite 6s;opacity:.6;}
+.landing-decor .c3{top:58%;left:-25%;transform:scale(.7);animation:drift 56s linear infinite 14s;opacity:.5;}
+.landing-decor .c4{top:80%;left:-32%;transform:scale(1);animation:drift 76s linear infinite 3s;opacity:.45;}
+@keyframes drift{to{left:125%;}}
+
+.landing-decor .sym{
+  position:absolute;font-family:'Jua',system-ui,sans-serif;
+  color:rgba(30,41,59,.09);user-select:none;
+  animation:symFloat 14s ease-in-out infinite alternate;
+}
+@keyframes symFloat{from{transform:translateY(0) rotate(var(--rot,0deg));}
+                    to{transform:translateY(-18px) rotate(var(--rot,0deg));}}
+.landing-decor .s1{top:12%;left:8%;font-size:5rem;--rot:-12deg;animation-delay:0s;}
+.landing-decor .s2{top:30%;right:9%;font-size:6rem;--rot:10deg;animation-delay:1.4s;}
+.landing-decor .s3{bottom:16%;left:6%;font-size:5.5rem;--rot:6deg;animation-delay:2.6s;}
+.landing-decor .s4{top:62%;right:14%;font-size:4.5rem;--rot:-8deg;animation-delay:.8s;}
+.landing-decor .s5{top:6%;right:32%;font-size:4rem;--rot:14deg;animation-delay:3.2s;}
+.landing-decor .s6{bottom:8%;right:26%;font-size:4.6rem;--rot:-5deg;animation-delay:2s;}
+.landing-decor .s7{top:46%;left:3%;font-size:4.2rem;--rot:9deg;animation-delay:4s;}
+
 @keyframes cloudFloat{0%,100%{transform:translateX(0) translateY(0);}50%{transform:translateX(24px) translateY(-10px);}}
 @keyframes twinkle{0%,100%{opacity:0.35;transform:scale(0.9);}50%{opacity:1;transform:scale(1.15);}}
 /* 세로 폭이 짧은 화면에서는 장식 요소가 카드와 겹쳐 어지러워 보이지 않도록 옅게 */
@@ -374,47 +396,96 @@ body.landing{
 
 body.landing .menu-wrap{background:none;}
 
+/* ── 포털과 같은 디자인 언어 ────────────────────────────────────────────────
+   잉크색 4px 테두리 + 블러 없는 하드 그림자 + Jua 서체.
+   글래스모피즘(반투명·블러)을 걷어내고 스티커를 붙여 놓은 듯한 인상을 준다. */
+body.landing{
+  --ink:#1E293B; --cream:#FFFDF7; --sun:#FFD166; --coral:#FF6B6B; --mint:#06D6A0;
+  --line:4px solid var(--ink);
+  --pop:cubic-bezier(.34,1.4,.64,1);
+  background:var(--cream);
+  font-family:'Pretendard Variable', Pretendard, system-ui, sans-serif;
+}
+body.landing h1, body.landing .menu-header .sub, body.landing .section-label,
+body.landing .icon-btn, body.landing .card-badge, body.landing .card-name,
+body.landing .card-foot, body.landing .start-cta{
+  font-family:'Jua', system-ui, sans-serif; font-weight:400;
+}
+
 body.landing .menu-header h1{
-  color:#fffbe6;
-  text-shadow:
-    -2px -2px 0 #ff6b6b, 2px -2px 0 #ff6b6b, -2px 2px 0 #ff6b6b, 2px 2px 0 #ff6b6b,
-    0 5px 0 #e64980, 0 9px 14px #00000030;
+  /* 포털처럼 크게 — 작으면 잉크 외곽선이 노란 속을 다 먹어 검게만 보인다 */
+  font-size:clamp(1.6rem, 2.6vw + 1.1rem, 2.8rem);
+  font-weight:400;letter-spacing:0;
+  color:var(--sun);
+  -webkit-text-stroke:3px var(--ink);
+  paint-order:stroke fill;
+  text-shadow:0 6px 0 var(--ink);
   animation:titleWiggle 3.2s ease-in-out infinite;
 }
 @keyframes titleWiggle{0%,100%{transform:rotate(0deg);}50%{transform:rotate(-1.5deg);}}
 body.landing .menu-header .sub{
-  color:#3a5a8a;font-weight:700;
-  background:#ffffffcc;display:inline-block;padding:4px 14px;border-radius:20px;
-  margin-top:6px;box-shadow:0 2px 0 #00000012;
+  color:var(--ink);background:#fff;display:inline-block;
+  padding:5px 15px;border:3px solid var(--ink);border-radius:999px;
+  margin-top:8px;box-shadow:3px 3px 0 0 var(--ink);
 }
 body.landing .icon-btn{
-  background:#fffdf5;border:3px solid #ffd166;color:#3a3a3a;font-weight:700;
-  box-shadow:0 4px 0 #e8b23d;border-radius:16px;
+  background:#fff;border:3px solid var(--ink);color:var(--ink);
+  box-shadow:3px 3px 0 0 var(--ink);border-radius:14px;
+  transition:transform .15s var(--pop), box-shadow .15s ease;
 }
-body.landing .icon-btn:active{transform:translateY(2px);box-shadow:0 2px 0 #e8b23d;}
+body.landing .icon-btn:active{transform:translate(2px,2px);box-shadow:1px 1px 0 0 var(--ink);}
 
-body.landing .section-label{color:#3a5a8a;font-weight:800;}
+body.landing .section-label{
+  color:var(--ink);display:inline-block;
+  background:var(--sun);border:3px solid var(--ink);border-radius:999px;
+  padding:4px 16px;box-shadow:3px 3px 0 0 var(--ink);
+}
 
+/* 종목 카드 — 굵은 잉크 테두리와 어긋난 하드 그림자로 "집어들 수 있을 것 같은" 덩어리감 */
 body.landing .card{
-  background:#fffdf7;
-  border:4px solid #ffd166;
-  box-shadow:0 6px 0 #e8b23d, 0 10px 16px #00000018;
+  background:#fff;
+  border:var(--line);border-radius:26px;
+  box-shadow:8px 8px 0 0 var(--ink);
   backdrop-filter:none;
+  transition:transform .18s var(--pop), box-shadow .18s ease;
 }
-body.landing .card:nth-child(6n+1){border-color:#ff6b6b;box-shadow:0 6px 0 #d64545,0 10px 16px #00000018;}
-body.landing .card:nth-child(6n+2){border-color:#4dabf7;box-shadow:0 6px 0 #2f7dc4,0 10px 16px #00000018;}
-body.landing .card:nth-child(6n+3){border-color:#51cf66;box-shadow:0 6px 0 #2f9e44,0 10px 16px #00000018;}
-body.landing .card:nth-child(6n+4){border-color:#ffa94d;box-shadow:0 6px 0 #e8720c,0 10px 16px #00000018;}
-body.landing .card:nth-child(6n+5){border-color:#da77f2;box-shadow:0 6px 0 #ae3ec9,0 10px 16px #00000018;}
-body.landing .card:nth-child(6n+6){border-color:#3bc9db;box-shadow:0 6px 0 #0b9aad,0 10px 16px #00000018;}
-body.landing .card:active{transform:translateY(3px) scale(0.98);}
-body.landing .card-badge{background:#00000010;color:#5a5a5a;font-weight:700;}
-body.landing .card-subject{color:#8a8a8a;}
-body.landing .card-name{color:#3a3a3a;}
-/* (카드별 색 틴트가 아래에서 배경을 지정한다) */
-body.landing .card-foot{background:#fff3d6;color:#e8720c;}
+@media (hover:hover) and (pointer:fine){
+  body.landing .card:hover{
+    transform:translate(-4px,-7px) scale(1.02) rotate(-.6deg);
+    box-shadow:13px 15px 0 0 var(--ink);z-index:2;
+  }
+  body.landing .card:hover .card-thumb img{transform:scale(1.05);}
+}
+body.landing .card:active{transform:translate(3px,4px) scale(0.99);box-shadow:4px 4px 0 0 var(--ink);}
+body.landing .card-thumb img{transition:transform .25s var(--pop);}
 
-/* 썸네일 박스 배경 — 카드마다 가진 고유 테두리 색을 10%만 깔아 그림이 겉돌지 않게 한다 */
+/* 카드마다 다른 색은 테두리 대신 상단 띠로 옮겨, 검은 테두리의 일관성을 지킨다 */
+body.landing .card::before{
+  content:"";position:absolute;left:0;right:0;top:0;height:10px;background:var(--sun);
+  border-bottom:3px solid var(--ink);
+}
+body.landing .card:nth-child(6n+1)::before{background:#FF6B6B;}
+body.landing .card:nth-child(6n+2)::before{background:#4DABF7;}
+body.landing .card:nth-child(6n+3)::before{background:#51CF66;}
+body.landing .card:nth-child(6n+4)::before{background:#FFA94D;}
+body.landing .card:nth-child(6n+5)::before{background:#DA77F2;}
+body.landing .card:nth-child(6n+6)::before{background:#3BC9DB;}
+body.landing .card-head{margin-top:6px;}
+
+/* 종목 번호 — 살짝 기울인 흰 타일 */
+body.landing .card-badge{
+  background:#fff;color:var(--ink);
+  border:3px solid var(--ink);border-radius:12px;
+  padding:3px 10px;box-shadow:2px 2px 0 0 var(--ink);
+  transform:rotate(-4deg);
+}
+body.landing .card-subject{color:rgba(30,41,59,.62);font-weight:600;}
+body.landing .card-name{color:var(--ink);}
+body.landing .card-foot{
+  background:var(--ink);color:var(--cream);border-radius:999px;
+}
+
+/* 썸네일 박스 — 카드마다 가진 고유 색을 10%만 깔고, 안으로 파인 음각만 남긴다 */
 body.landing .card:nth-child(6n+1) .card-thumb{background:rgba(255,107,107,0.10);}
 body.landing .card:nth-child(6n+2) .card-thumb{background:rgba(77,171,247,0.10);}
 body.landing .card:nth-child(6n+3) .card-thumb{background:rgba(81,207,102,0.10);}
@@ -422,15 +493,20 @@ body.landing .card:nth-child(6n+4) .card-thumb{background:rgba(255,169,77,0.10);
 body.landing .card:nth-child(6n+5) .card-thumb{background:rgba(218,119,242,0.10);}
 body.landing .card:nth-child(6n+6) .card-thumb{background:rgba(59,201,219,0.10);}
 
-
 body.landing .start-cta-row{padding:14px 0 6px;}
 body.landing .start-cta{
-  background:linear-gradient(135deg,#ff6b6b,#ffa94d 50%,#ffd43b);
-  color:#5a2d00;box-shadow:0 8px 0 #d9480f, 0 12px 26px #ff922b55;
+  background:var(--sun);color:var(--ink);
+  border:var(--line);border-radius:999px;
+  box-shadow:6px 6px 0 0 var(--ink);
+  transition:transform .15s var(--pop), box-shadow .15s ease;
 }
+@media (hover:hover) and (pointer:fine){
+  body.landing .start-cta:hover{transform:translate(-2px,-3px) scale(1.03);box-shadow:9px 10px 0 0 var(--ink);}
+}
+body.landing .start-cta:active{transform:translate(3px,4px);box-shadow:2px 2px 0 0 var(--ink);}
 
-body.landing .footer{color:#3a5a8a;font-weight:600;}
-body.landing .credit{color:#3a5a8a;}
+body.landing .footer{color:rgba(30,41,59,.68);font-weight:600;}
+body.landing .credit{color:rgba(30,41,59,.55);}
 
 body.landing .overlay-panel{
   background:#ffffffee;backdrop-filter:blur(8px);
@@ -455,6 +531,14 @@ body.landing .mode-btn.selected{box-shadow:0 0 0 4px #ff6b6b, 0 12px 28px #ff6b6
   box-shadow:0 8px 24px #00000050;border:1px solid #ffffff22;white-space:nowrap;
 }
 .sound-hint.show{opacity:1;transform:translateX(-50%) translateY(0);}
+/* 랜딩에서는 아래에 크레딧이 두 줄 있어 겹치므로 화면 위쪽에 띄우고, 잉크 스타일로 맞춘다 */
+body.landing .sound-hint{
+  top:clamp(70px, 12vh, 110px);bottom:auto;
+  background:var(--ink);color:var(--cream);
+  border:3px solid var(--ink);border-radius:999px;
+  box-shadow:4px 4px 0 0 rgba(30,41,59,.25);
+  font-family:'Jua', system-ui, sans-serif;font-weight:400;
+}
 
 /* ===========================================================================
    5학년판 파티 레이어 — 룰카드 · 시상대 · 파티 보드 · 화면 전환
