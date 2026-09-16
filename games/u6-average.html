@@ -121,7 +121,7 @@ function randInt(min, max) { return min + Math.floor(Math.random() * (max - min 
 function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 
 const HITTERS = [["가온", "🧒"], ["나래", "🧒"], ["다올", "🧒"], ["라온", "🧒"], ["마루", "🧒"]];
-const MAXV = 20;                 // 세로 눈금 0~20 m — 손 높이로 조절할 수 있을 만큼만 넓힌다
+const MAXV = 20;                 // 세로 눈금 0~20 m — 몸 높이로 조절할 수 있을 만큼만 넓힌다
 const SNAP = 0.5;
 
 // ---------------------------------------------------------------------------
@@ -159,7 +159,7 @@ function genAverage(level) {
     hideIdx: -1, answer: 8, showAvg: null, question: "평균 비거리에 균형대를 맞춰요!", hint: "모두 더한 뒤 사람 수로 나눠요", addLater: false };
 }
 
-// 가능성 문제 — 팔 높이로 답한다 (위=확실, 가운데=반반, 아래=불가능)
+// 가능성 문제 — 온몸 세 단계로 답한다 (점프=확실, 제자리=반반, 앉기=불가능)
 const CHANCE = [
   { label: "0", sub: "불가능하다", value: 0 },
   { label: "1/2", sub: "반반이다", value: 0.5 },
@@ -173,7 +173,7 @@ function genChance() {
   return {
     type: "chance", balls, red, total, answer: CHANCE[pick].value,
     question: "빨간 공이 나올 가능성은?",
-    hint: "손을 높이 들면 1(확실), 가운데는 1/2(반반), 아래는 0(불가능)",
+    hint: "점프하면 1(확실), 그냥 서면 1/2(반반), 앉으면 0(불가능)",
   };
 }
 
@@ -208,11 +208,13 @@ async function init() {
     unit: UNIT,
     title: "평균 균형대",
     lines: [
-      mode === "motion" ? "<b>손 높이가 곧 값</b>이에요. 손을 올리고 내리면 균형대가 따라 움직여요."
+      mode === "motion" ? "<b>몸 높이가 곧 값</b>이에요. <b>깊이 앉을수록 작은 수</b>, 똑바로 설수록 큰 수!"
         : "<b>위아래로 드래그</b>하면 균형대가 움직여요.",
-      "평균 높이에 균형대를 맞추고 <b>0.7초 그대로</b> 있으면 성공!",
+      "평균 높이에 균형대를 맞추고 <b>0.7초 버티면</b> 성공! (앉은 자세로 버티는 거예요)",
       "맞히면 막대들이 <b>평평하게 고르게</b> 정리돼요 — 그게 평균이에요.",
-      "가능성 문제는 <b>손을 높이 들면 1</b>, 가운데는 1/2, 아래는 0이에요.",
+      mode === "motion"
+        ? "가능성 문제는 온몸으로 — <b>점프하면 1(확실)</b>, 그냥 서면 1/2(반반), <b>앉으면 0(불가능)</b>!"
+        : "가능성 문제는 위가 1(확실), 가운데 1/2, 아래 0이에요.",
     ],
   });
 
@@ -230,6 +232,11 @@ const startGate = new StartGate(mode, holdFill);
 let autoDiff, count, playEndAt;
 let round, roundAt, resolving, hold = 0, resultMark = null, added = false;
 let handV = null, handBand = null;
+let standY = null;           // 똑바로 섰을 때의 어깨 높이(기준선)
+let jumpLatch = 0;           // 점프한 순간을 잠깐 붙잡아 둔다
+// 어깨가 이만큼(어깨 너비 대비) 내려가면 완전히 앉은 것
+const SQUAT_FULL = 0.60;
+const JUMP_POWER = 0.17;
 const smooth = new SmoothedPoint(6);
 let confetti = [], sparks = [];
 const shake = new ScreenShake();
@@ -250,7 +257,8 @@ function newRound() {
   round = genRound(autoDiff.level);
   roundAt = performance.now();
   resolving = false; hold = 0; resultMark = null; added = false;
-  smooth.reset();
+  standY = null; jumpLatch = 0;
+  smooth.reset(); motion.reset();
 }
 
 function startCountdown() {
@@ -455,15 +463,26 @@ function stepGame() {
 
   // ── 입력: 손 높이 = 값 ───────────────────────────────────
   if (!resolving) {
-    if (cursors.length > 0) {
+    if (mode === "motion") {
       const f = motion.last;
-      const wy = f ? (f.lw.y + f.rw.y) / 2 : null;      // 두 손목의 평균 높이 = 균형대
-      const p = wy === null ? null : smooth.push((f.lw.x + f.rw.x) / 2, wy);
-      if (p) {
+      if (f) {
+        // 몸 전체 높이가 곧 값 — 깊이 앉을수록 작은 수, 똑바로 설수록 큰 수
+        if (standY === null) standY = f.sc.y; else standY = Math.min(standY, f.sc.y);
+        const drop = (f.sc.y - standY) / f.unit;
+        const t = Math.max(0, Math.min(1, drop / SQUAT_FULL));
+        const p = smooth.push(f.sc.x, c.yTop + t * (c.yBot - c.yTop));
         const y = Math.max(c.yTop, Math.min(c.yBot, p.y));
         handV = snapV(yToV(y));
-        handBand = bandOf(y);
+        // 가능성은 온몸 세 단계로 답한다 — 점프=확실, 제자리=반반, 앉기=불가능
+        const j = motion.jump();
+        if (j && j.power > JUMP_POWER) jumpLatch = now;
+        handBand = (now - jumpLatch < 900) ? 1 : (t > 0.5 ? 0 : 0.5);
       }
+    } else if (cursors.length > 0) {
+      const p = smooth.push(cursors[0].x, cursors[0].y);
+      const y = Math.max(c.yTop, Math.min(c.yBot, p.y));
+      handV = snapV(yToV(y));
+      handBand = bandOf(y);
     }
     const ok = round.type === "chance"
       ? handBand !== null && Math.abs(handBand - round.answer) < 1e-9
