@@ -72,8 +72,9 @@
 <script type="module">
 import {
   HighScore, requestWakeLock, SoundKit, FileAudioLoop,
-  HandTracker, ClipRecorder, downloadBlob,
-  drawMirroredVideo, fitCanvasToScreen, isHandRaised, getCursors,
+  ClipRecorder, downloadBlob,
+  drawMirroredVideo, fitCanvasToScreen, getCursors,
+  PoseTracker, PoseMotion, posePoints, isArmRaised,
   AutoDifficulty, levelFromUrl, medalFor,
   scheduleAutoRecording, ComboShot, drawPhotoOverlay,
   ScreenShake, InputMode, PointerInput, StartGate, toMirroredCanvas,
@@ -251,7 +252,8 @@ function genQuestion(level, net) {
   };
 }
 
-const handTracker = new HandTracker();
+const poseTracker = new PoseTracker();
+const motion = new PoseMotion();
 let pointerInput = null;
 
 async function init() {
@@ -265,7 +267,7 @@ async function init() {
       return;
     }
     document.getElementById("loadingText").textContent = "AI 모델을 불러오는 중…";
-    await handTracker.init(1);
+    await poseTracker.init();
   } else {
     pointerInput = new PointerInput(canvas);
   }
@@ -277,9 +279,9 @@ async function init() {
     lines: [
       "왼쪽 <b>전개도</b>를 보고 문제의 답이 되는 <b>한글 카드</b>를 찾아요.",
       mode === "motion"
-        ? "<b>배트를 잡듯 주먹을 꽉 쥐고</b> 정답 카드를 겨눈 뒤, <b>힘껏 휘두르면</b> 안타!"
-        : "정답 카드를 겨누고 <b>화면을 누르면</b> 배트를 휘둘러요!",
-      "카드는 <b>천천히 떠다녀요.</b> 겨눈 카드에 <b>흰 테두리</b>가 생기니 확인하고 치세요.",
+        ? "카드가 <b>오른쪽에서 날아와요.</b> <b>몸을 좌우로 움직여</b> 정답 카드에 다가가 <b>팔을 휘둘러</b> 쳐요!"
+        : "<b>좌우로 움직여</b> 정답 카드에 다가가 <b>눌러서</b> 쳐요!",
+      "<b>오답 카드는 피해야 해요!</b> 몸에 맞으면 실점이에요. 옆으로 비켜서세요.",
       "⭐1 <b>마주 보는 면</b> → ⭐2 <b>이웃하지 않은 면</b> → ⭐3 <b>한 꼭짓점에서 만나는 면</b>",
     ],
   });
@@ -301,12 +303,11 @@ let cards = [];
 let lockUntil = 0;
 let punch = null;            // 배트가 맞은 자리 — 타격 충격과 파편을 그린다
 let shards = [];             // 부서진 카드 조각
-let handLm = null;           // 이번 프레임의 손 랜드마크
-let aim = null;              // 주먹이 겨누는 화면 좌표
-let fistNow = false;         // 지금 주먹을 쥐고 있는가
-let fistHist = [];           // 최근 주먹 크기·위치 — 앞으로 뻗는 순간을 잡는다
 let gloveShot = null;        // 진행 중인 스윙
-let targetIdx = -1;          // 지금 겨누고 있는 카드
+let targetIdx = -1;          // 지금 배트가 닿는 카드
+let batterX = 0, batterY = 0, batterR = 40;   // 몸 좌우 위치가 곧 타자의 자리
+// 몸을 어깨 너비의 이만큼 옮기면 화면 좌우 끝까지 간다
+const SPAN = 1.6;
 let confetti = [], sparks = [];
 const shake = new ScreenShake();
 let recorder, comboShot, fallbackShot, autoRec, recordedBlob = null;
@@ -314,84 +315,80 @@ const recIndicator = document.getElementById("recIndicator");
 let cursors = [];
 let lastFrameAt = 0;
 
-// ── 주먹 인식 ───────────────────────────────────────────────────────────────
-// 손가락 끝이 중간마디보다 손목에 가까우면 그 손가락은 접힌 것이다.
-// 네 손가락 중 셋 이상 접혔으면 주먹으로 본다.
-function isFist(lm) {
-  const d = (a, b) => Math.hypot(lm[a].x - lm[b].x, lm[a].y - lm[b].y);
-  let curled = 0;
-  for (const [tip, pip] of [[8, 6], [12, 10], [16, 14], [20, 18]]) {
-    if (d(tip, 0) < d(pip, 0) * 1.02) curled++;
+// ── 타자 위치 = 몸의 좌우 자리 ────────────────────────────────────────────
+function updateBatter() {
+  const { w, h } = dims;
+  batterR = fluidPx(dims, 30, { min: 22, max: 42 });
+  batterY = h * 0.62;
+  if (mode !== "motion") {
+    const p = cursors[0];
+    if (p) { batterX = p.x; batterY = p.y; }
+    else if (!batterX) batterX = w * 0.25;
+    return;
   }
-  return curled >= 3;
-}
-// 손을 앞으로 뻗으면 카메라에 가까워져 손이 커 보인다 — 그 크기를 잰다
-function fistSize(lm) {
-  return Math.hypot(lm[0].x - lm[9].x, lm[0].y - lm[9].y);
+  const f = motion.last;
+  if (!f) { if (!batterX) batterX = w * 0.25; return; }
+  // 화면 한가운데가 가운데. 어깨 너비의 SPAN배만큼 옮기면 좌우 끝까지 간다
+  const rel = (f.sc.x - w / 2) / (f.unit * SPAN);
+  batterX = Math.max(w * 0.06, Math.min(w * 0.94, w / 2 + rel * w * 0.46));
+  batterY = Math.max(h * 0.28, Math.min(h * 0.80, f.sc.y));
 }
 
 const GLOVE_MS = 170;         // 스윙이 끝나기까지 걸리는 시간
-const THRUST_RATIO = 1.18;    // 300 ms 안에 주먹이 이만큼 커지면 "앞으로 뻗었다"
-const JAB_FRAC = 0.12;        // 또는 200 ms 안에 화면의 이만큼을 가로지르면 잽
+// 어깨 너비의 이만큼을 1초에 지나가야 "휘둘렀다"고 본다
+const SWING_SPEED = 1.1;
 
 // 카드를 겹치지 않게 늘어놓고, 각자 천천히 떠다닐 속도를 준다
+// 카드는 오른쪽에서 타자를 향해 날아온다. 몸을 좌우로 옮겨 다가가 쳐야 한다.
 function placeCards(faces) {
   const { w, h } = dims;
-  const zx = w * 0.37, zy = h * 0.26, zw = w * 0.58, zh = h * 0.54;
-  const r = Math.max(26, Math.min(w, h) * 0.085);
-  const n = faces.length;
-  const cols = n <= 3 ? n : Math.ceil(n / 2);
-  const rows = Math.ceil(n / cols);
+  const r = Math.max(24, Math.min(w, h) * 0.075);
   const speed = q ? q.speed : 18;
-  cards = faces.map((face, i) => {
-    const c = i % cols, rr = Math.floor(i / cols);
-    const ang = Math.random() * Math.PI * 2;
-    return {
-      face, r,
-      x: zx + zw * ((c + 0.5) / cols),
-      y: zy + zh * ((rr + 0.5) / rows),
-      vx: Math.cos(ang) * speed,
-      vy: Math.sin(ang) * speed,
-      pop: 0, bad: 0, gone: false,
-    };
-  });
+  cards = faces.map((face, i) => ({
+    face, r,
+    x: w * (1.05 + i * 0.26),                       // 화면 밖에서 차례로 들어온다
+    y: h * (0.30 + Math.random() * 0.34),
+    vx: -(speed * 3.2 + Math.random() * speed),      // 왼쪽(타자 쪽)으로
+    vy: (Math.random() - 0.5) * speed * 0.6,
+    pop: 0, bad: 0, gone: false, passed: false,
+  }));
 }
 
 function updateCards(dt) {
   const { w, h } = dims;
-  const zx = w * 0.35, zy = h * 0.24, zw = w * 0.62, zh = h * 0.58;
   for (const c of cards) {
     if (c.gone) continue;
     c.x += c.vx * dt; c.y += c.vy * dt;
-    if (c.x < zx + c.r) { c.x = zx + c.r; c.vx = Math.abs(c.vx); }
-    if (c.x > zx + zw - c.r) { c.x = zx + zw - c.r; c.vx = -Math.abs(c.vx); }
-    if (c.y < zy + c.r) { c.y = zy + c.r; c.vy = Math.abs(c.vy); }
-    if (c.y > zy + zh - c.r) { c.y = zy + zh - c.r; c.vy = -Math.abs(c.vy); }
+    if (c.y < h * 0.24 + c.r) { c.y = h * 0.24 + c.r; c.vy = Math.abs(c.vy); }
+    if (c.y > h * 0.82 - c.r) { c.y = h * 0.82 - c.r; c.vy = -Math.abs(c.vy); }
     if (c.pop > 0) c.pop = Math.max(0, c.pop - dt * 2.4);
     if (c.bad > 0) { c.bad = Math.max(0, c.bad - dt * 2.0); c.vx *= 0.94; c.vy *= 0.94; }
-  }
 
-  // 카드끼리 겹치면 어느 것을 치는지 알 수 없다 — 서로 밀어내고 튕기게 한다
-  for (let i = 0; i < cards.length; i++) {
-    for (let j = i + 1; j < cards.length; j++) {
-      const a = cards[i], b = cards[j];
-      if (a.gone || b.gone) continue;
-      const dx = b.x - a.x, dy = b.y - a.y;
-      const d = Math.hypot(dx, dy) || 0.001;
-      const min = (a.r + b.r) * 1.15;
-      if (d >= min) continue;
-      const ux = dx / d, uy = dy / d;
-      const push = (min - d) / 2;
-      a.x -= ux * push; a.y -= uy * push;
-      b.x += ux * push; b.y += uy * push;
-      // 서로 다가오는 중일 때만 속도를 반사한다 (겹친 채 떠는 것을 막는다)
-      const rel = (b.vx - a.vx) * ux + (b.vy - a.vy) * uy;
-      if (rel < 0) {
-        a.vx += rel * ux; a.vy += rel * uy;
-        b.vx -= rel * ux; b.vy -= rel * uy;
-      }
+    // 오답 카드가 몸에 닿으면 맞은 것 — 옆으로 피해야 한다
+    if (!c.passed && !resolving && c.bad <= 0 && Math.hypot(c.x - batterX, c.y - batterY) < c.r + batterR * 0.9) {
+      c.passed = true;
+      if (c.face !== q.answer) hitByCard(c);
     }
+    // 왼쪽 끝을 지나가면 사라진다
+    if (c.x < -c.r * 2) c.gone = true;
   }
+  // 정답 카드가 지나가 버렸으면 한 번 놓친 것으로 보고 다음 문제로
+  if (!resolving && cards.every((c) => c.gone || c.x < 0)) {
+    const ans = cards.find((c) => c.face === q.answer);
+    if (ans && ans.gone) { resolving = true; setTimeout(() => { if (state === "playing") newRound(); }, 600); }
+  }
+}
+
+// 오답 카드에 몸을 맞았다 — 피하지 못한 것
+function hitByCard(card) {
+  card.bad = 1;
+  const ang = Math.random() * Math.PI * 2;
+  card.vx = Math.cos(ang) * 150; card.vy = Math.sin(ang) * 150;
+  party.wrong(card.x, card.y, "피해요!");
+  autoDiff.reportWrong();
+  shake.trigger(7, 180);
+  if (!isMuted()) sound.wrong();
+  lockUntil = performance.now() + 400;
 }
 
 function newRound() {
@@ -640,49 +637,28 @@ function goReady() {
 // ── 배트를 휘두르면 카드를 쳐낸다 ──────────────────────────────────────────
 function detectPunch(now) {
   if (resolving || gloveShot || now < lockUntil) return;
-
   if (mode !== "motion") {
-    if (pointerInput && pointerInput.consumeJustDown() && aim) launchGlove(aim);
+    if (pointerInput && pointerInput.consumeJustDown()) swing();
     return;
   }
-
-  if (!handLm) { fistHist = []; return; }
-  fistHist.push({ t: now, s: fistSize(handLm), x: aim ? aim.x : 0, y: aim ? aim.y : 0, fist: fistNow });
-  while (fistHist.length && now - fistHist[0].t > 300) fistHist.shift();
-  if (!fistNow || fistHist.length < 3 || !aim) return;
-
-  const last = fistHist[fistHist.length - 1];
-  // ① 앞으로 쭉 뻗기 — 주먹이 갑자기 커진다
-  const minS = Math.min(...fistHist.map((h) => h.s));
-  if (last.s > minS * THRUST_RATIO) { launchGlove(aim); fistHist = []; return; }
-  // ② 잽 — 주먹을 쥔 채 짧고 빠르게 내지른다
-  const recent = fistHist.filter((h) => now - h.t <= 200);
-  if (recent.length >= 3) {
-    const o = recent[0];
-    if (Math.hypot(last.x - o.x, last.y - o.y) > Math.min(dims.w, dims.h) * JAB_FRAC) {
-      launchGlove(aim); fistHist = [];
-    }
-  }
+  const sw = motion.swing();
+  if (sw && sw.speed > SWING_SPEED) { swing(); motion.reset(); }
 }
 
-function launchGlove(from) {
-  if (!from) return;
-  // 겨눈 곳에서 가장 가까운 카드를 노린다 — 정확히 겹치지 않아도 넉넉히 잡아 준다
+// 배트가 닿는 범위 안에서 가장 가까운 카드를 친다 — 멀면 몸을 옮겨 다가가야 한다
+function swing() {
   let idx = -1, best = Infinity;
   for (let i = 0; i < cards.length; i++) {
     const c = cards[i];
     if (c.gone) continue;
-    const d = Math.hypot(from.x - c.x, from.y - c.y);
+    const d = Math.hypot(batterX - c.x, batterY - c.y);
     if (d < best) { best = d; idx = i; }
   }
-  const reach = Math.min(dims.w, dims.h) * 0.34;
-  gloveShot = {
-    fromX: from.x, fromY: from.y, x: from.x, y: from.y, t: 0,
-    idx: (idx >= 0 && best < reach) ? idx : -1,
-    at: performance.now(),
-  };
+  gloveShot = { fromX: batterX, fromY: batterY, x: batterX, y: batterY, t: 0,
+                idx: (idx >= 0 && best < batReach()) ? idx : -1, at: performance.now() };
   if (!isMuted()) sound.swoosh();
 }
+function batReach() { return Math.min(dims.w, dims.h) * 0.26; }
 
 function updateGlove(now) {
   if (!gloveShot) return;
@@ -823,8 +799,8 @@ function drawCards(ctx, now) {
       const pulse = 0.5 + 0.5 * Math.sin(now / 150);
       ctx.beginPath();
       ctx.arc(c.x, c.y + wob, rr * (1.2 + pulse * 0.08), 0, Math.PI * 2);
-      ctx.strokeStyle = fistNow ? PARTY.gold : "rgba(255,255,255,0.75)";
-      ctx.lineWidth = Math.max(4, rr * (fistNow ? 0.18 : 0.11));
+      ctx.strokeStyle = PARTY.gold;
+      ctx.lineWidth = Math.max(4, rr * 0.16);
       ctx.stroke();
     }
     ctx.restore();
@@ -845,34 +821,36 @@ function loop(tsMs) {
 
   let result = null;
   if (mode === "motion") {
-    result = handTracker.detect(video, tsMs);
+    result = poseTracker.detect(video, tsMs);
+    motion.push(tsMs, posePoints(result), w, h, video);
     if (state === "raise") {
       let raised = false;
-      if (result && result.landmarks) for (const lm of result.landmarks) if (isHandRaised(lm)) raised = true;
+      raised = isArmRaised(posePoints(result));
       if (startGate.update(tsMs, raised)) goReady();
     }
   }
   cursors = getCursors(mode, result, w, h, video, pointerInput);
 
-  // 주먹을 쥐면 검지 끝이 손바닥으로 말려 들어가므로, 겨냥은 주먹 한가운데(중지 뿌리)로 잡는다
-  handLm = (result && result.landmarks && result.landmarks[0]) || null;
-  if (mode === "motion") {
-    fistNow = handLm ? isFist(handLm) : false;
-    aim = handLm ? toMirroredCanvas(handLm[9], w, h, video) : null;
-  } else {
-    fistNow = !!(pointerInput && pointerInput.down);
-    aim = cursors[0] || null;
-  }
-
+  updateBatter();
   if (state === "playing") stepGame();
 
-  // 손 위치에는 배트를 쥐여 준다. 주먹을 쥐면 뒤로 젖혀지며 칠 준비가 된 것이 보인다.
-  if (aim && !gloveShot) {
-    const hitK = punch ? Math.max(0, 1 - (performance.now() - punch.at) / 220) : 0;
-    const r = fluidPx(dims, 48, { min: 36, max: 68 }) * (1 + (fistNow ? 0.08 : 0) + hitK * 0.25);
+  if (mode === "motion" && !motion.last && state === "playing") {
+    drawChunkyText(ctx, "카메라에 몸이 보이게 한 걸음 물러서 주세요!", w * 0.5, h * 0.5,
+      fluidPx(dims, 22, { min: 16, max: 30 }), "#fff",
+      { outline: CUTE.ink, outlineWidth: fluidPx(dims, 6, { min: 4, max: 8 }) });
+  }
+
+  // 타자 — 몸이 있는 자리에 선수와 배트를 그린다
+  if (state === "playing" && !gloveShot) {
+    const br = fluidPx(dims, 46, { min: 34, max: 64 });
+    drawPlayer(ctx, batterX, batterY, batterR, CHAR, party.currentMood(1e9));
+    drawBat(ctx, batterX + batterR * 0.9, batterY - batterR * 0.2, br * 0.8, { rot: -0.5 });
+    // 배트가 닿는 범위
     ctx.save();
-    if (!fistNow) ctx.globalAlpha = 0.72;   // 배트를 꽉 쥐어야 또렷해진다 — 쥔 상태가 한눈에 보인다
-    drawBat(ctx, aim.x, aim.y, r, { rot: fistNow ? -0.55 : -0.15 });   // 쥐면 뒤로 젖힌 준비 자세
+    ctx.setLineDash([9, 8]);
+    ctx.strokeStyle = "rgba(255,255,255,0.45)";
+    ctx.lineWidth = fluidPx(dims, 2.5, { min: 2, max: 3.6 });
+    ctx.beginPath(); ctx.arc(batterX, batterY, batReach(), 0, Math.PI * 2); ctx.stroke();
     ctx.restore();
   }
   drawSwing(ctx);
@@ -896,15 +874,15 @@ function stepGame() {
 
   // 겨누고 있는 카드 — launchGlove와 같은 기준으로 고른다
   targetIdx = -1;
-  if (aim && !resolving && !gloveShot) {
+  if (!resolving && !gloveShot) {
     let best = Infinity;
     for (let i = 0; i < cards.length; i++) {
       const c = cards[i];
       if (c.gone) continue;
-      const d = Math.hypot(aim.x - c.x, aim.y - c.y);
+      const d = Math.hypot(batterX - c.x, batterY - c.y);
       if (d < best) { best = d; targetIdx = i; }
     }
-    if (best >= Math.min(dims.w, dims.h) * 0.34) targetIdx = -1;
+    if (best >= batReach()) targetIdx = -1;
   }
 
   drawNet(ctx);
@@ -923,10 +901,10 @@ function stepGame() {
   ], fluidPx, { top: hudBottom });
 
   const guide = mode === "motion"
-    ? (fistNow ? "⚾ 그대로 힘껏 휘두르세요!" : "배트를 잡듯 주먹을 쥐고 정답 카드를 겨눠요!")
+    ? (targetIdx >= 0 ? "🏏 닿았어요! 지금 휘두르세요!" : "몸을 좌우로 움직여 정답 카드에 다가가요")
     : "정답 카드를 겨누고 눌러요!";
   drawChunkyText(ctx, guide, w * 0.64, h * 0.94, fluidPx(dims, 16, { min: 12, max: 22 }),
-    fistNow ? PARTY.gold : "#fff",
+    targetIdx >= 0 ? PARTY.gold : "#fff",
     { outline: CUTE.ink, outlineWidth: fluidPx(dims, 5, { min: 3.5, max: 7 }) });
 
   party.update(dt);
