@@ -25,9 +25,9 @@
   <div class="overlay-panel" id="rulePanel" style="display:none">
     <div class="rule-card">
       <div class="rule-head">
-        <div class="rule-char">🦊</div>
+        <div class="rule-char">🏃</div>
         <div>
-          <div class="rule-name">재보</div>
+          <div class="rule-name"></div>
           <h2 class="rule-title">소수 멀리뛰기</h2>
         </div>
       </div>
@@ -87,7 +87,7 @@ import {
   drawBunting, drawGloveCursor, drawLevelStars, drawCuteBanner,
 } from "../js/cute.js?v=7";
 import {
-  PARTY, CHARACTERS, Party, drawPartyBackdrop, drawCrowd, drawMascot,
+  PARTY, CHARACTERS, Party, drawPartyBackdrop, drawCrowd, drawAthlete as drawPlayer,
   showRuleCard, renderPodium, irisTransition,
 } from "../js/party.js?v=2";
 requestWakeLock();
@@ -106,7 +106,7 @@ let drifters = makeDrifters(10, dims.w, dims.h);
 window.addEventListener("resize", () => {
   dims = fitCanvasToScreen(canvas);
   drifters = makeDrifters(10, dims.w, dims.h);
-  if (round) layoutMats();
+
 });
 
 const sound = new SoundKit();
@@ -133,59 +133,40 @@ function fmt(v) {
 // 그래서 오답 보기를 소수점만 어긋난 수로 깔아 둔다.
 // 부동소수점 오차를 피하려고 정수로 곱한 뒤 마지막에만 나눈다.
 // ---------------------------------------------------------------------------
+// 뛸 수 있는 거리 범위 — 답이 이 안에 들어오도록 문제를 만든다
+const MIND = 0.5, MAXD = 3.0;
+
 function genRound(level) {
-  const optCount = level === 3 ? 4 : 3;
-  let ai, bi, scale, aText, bText;
-  if (level === 1) {
-    // (소수 한 자리) × (자연수)
-    ai = randInt(2, 9);          // 0.2 ~ 0.9
-    bi = randInt(2, 9);          // 2 ~ 9
-    scale = 10;
-    aText = fmt(ai / 10); bText = String(bi);
-  } else if (level === 2) {
-    // (소수 한 자리) × (소수 한 자리)
-    ai = randInt(2, 9);
-    bi = randInt(11, 29);        // 1.1 ~ 2.9
-    scale = 100;
-    aText = fmt(ai / 10); bText = fmt(bi / 10);
-  } else {
-    ai = randInt(12, 48);        // 1.2 ~ 4.8
-    bi = randInt(11, 39);        // 1.1 ~ 3.9
-    scale = 100;
-    aText = fmt(ai / 10); bText = fmt(bi / 10);
+  for (let t = 0; t < 400; t++) {
+    let ai, bi, scale, aText, bText;
+    if (level === 1) {
+      // (소수 한 자리) × (자연수)
+      ai = randInt(2, 9); bi = randInt(2, 9); scale = 10;
+      aText = fmt(ai / 10); bText = String(bi);
+    } else if (level === 2) {
+      // (소수 한 자리) × (소수 한 자리)
+      ai = randInt(2, 9); bi = randInt(11, 39); scale = 100;
+      aText = fmt(ai / 10); bText = fmt(bi / 10);
+    } else {
+      ai = randInt(12, 28); bi = randInt(11, 25); scale = 100;
+      aText = fmt(ai / 10); bText = fmt(bi / 10);
+    }
+    const answer = (ai * bi) / scale;
+    if (answer < MIND || answer > MAXD) continue;
+    // 눈금에 적히는 수와 실제 값이 어긋나지 않게, 두 자리로 적어도 그대로 되읽히는 답만 쓴다
+    if (Math.abs(parseFloat(fmt(answer)) - answer) > 1e-9) continue;
+    return {
+      aText, bText, answer,
+      question: `${aText} × ${bText} = ?`,
+      hint: level === 1
+        ? "소수점 아래 자리 수를 세어 곱의 소수점을 찍어요"
+        : "두 수의 소수점 아래 자리 수를 더한 만큼 곱에도 찍어요",
+      // 허용 오차는 답에 비례 — 큰 수일수록 구역도 넓어져 체감 난이도가 일정하다
+      tol: answer * (level === 1 ? 0.15 : level === 2 ? 0.13 : 0.11),
+    };
   }
-  const answer = (ai * bi) / scale;
-
-  // 매트에 적히는 수와 실제 값이 어긋나면 안 되므로, 두 자리로 적어도
-  // 그대로 되읽히는 수만 보기로 쓴다 (0.027을 "0.03"으로 적는 일이 없게)
-  const exact = (v) => Math.abs(parseFloat(fmt(v)) - v) < 1e-9;
-
-  // 오답 — 소수점이 한 칸씩 밀린 수를 먼저 넣는다
-  const opts = [answer];
-  for (const c of shuffle([answer * 10, answer / 10, answer * 100, answer / 100])) {
-    if (opts.length >= optCount) break;
-    const v = Math.round(c * 1000) / 1000;
-    if (v <= 0 || v > 300 || !exact(v)) continue;
-    if (opts.some((o) => Math.abs(o - v) < 1e-9)) continue;
-    opts.push(v);
-  }
-  // 그래도 모자라면 계산 실수처럼 보이는 수로 채운다
-  let guard = 0;
-  while (opts.length < optCount && guard++ < 80) {
-    const slip = ((ai + randInt(-2, 2)) * bi) / scale;
-    const v = Math.round(slip * 1000) / 1000;
-    if (v <= 0 || !exact(v) || opts.some((o) => Math.abs(o - v) < 1e-9)) continue;
-    opts.push(v);
-  }
-
-  return {
-    aText, bText, answer,
-    options: shuffle(opts),
-    question: `${aText} × ${bText} = ?`,
-    hint: level === 1
-      ? "소수점 아래 자리 수를 세어 곱의 소수점을 찍어요"
-      : "두 수의 소수점 아래 자리 수를 더한 만큼 곱에도 찍어요",
-  };
+  return { aText: "0.5", bText: "4", answer: 2, question: "0.5 × 4 = ?",
+           hint: "소수점 아래 자리 수를 세어 곱의 소수점을 찍어요", tol: 0.3 };
 }
 
 const poseTracker = new PoseTracker();
@@ -215,12 +196,12 @@ async function init() {
     lines: [
       "위에 <b>소수의 곱셈</b> 문제가 나와요. 답을 계산해요.",
       mode === "motion"
-        ? "<b>손을 들어 좌우로 움직여</b> 답이 적힌 착지 매트를 겨눠요. 금색 테두리가 생겨요."
-        : "답이 적힌 착지 매트를 겨눠요. 금색 테두리가 생겨요.",
+        ? "<b>무릎을 굽혀 웅크릴수록</b> 멀리 뛰어요. 지금 뛰면 닿을 자리가 <b>금색 눈금</b>으로 보여요."
+        : "모래밭 위에서 <b>좌우로 움직여</b> 뛸 거리를 맞춰요.",
       mode === "motion"
-        ? "겨눴으면 <b>힘껏 점프!</b> (앉아서 한다면 <b>두 팔을 위로 확 뻗어도</b> 돼요) 세게 뛸수록 높이 날아요."
-        : "겨눴으면 <b>화면을 눌러</b> 도약!",
-      "맞으면 재보가 <b>멋지게 착지</b>하고 심판이 깃발을 들어요.",
+        ? "계산한 거리에 맞췄으면 <b>힘껏 점프!</b> 보기는 없어요 — <b>뛴 거리가 곧 답</b>이에요."
+        : "거리를 맞췄으면 <b>화면을 눌러</b> 도약!",
+      "맞으면 선수가 <b>멋지게 착지</b>하고 심판이 깃발을 들어요.",
       "오답 매트는 <b>소수점만 살짝 어긋난 수</b>예요. 자리 수를 잘 세어 보세요!",
     ],
   });
@@ -237,12 +218,14 @@ const holdFill = document.getElementById("holdFill");
 const startGate = new StartGate(mode, holdFill);
 
 let autoDiff, count, playEndAt;
-let round = null, mats = [], roundAt, resolving;
-let aimIdx = -1, lockUntil = 0;
+let round = null, roundAt, resolving;
+let lockUntil = 0;
 let poseLm = null;        // 이번 프레임의 전신 랜드마크
-let aimX = null;          // 손목으로 겨눈 좌우 위치
-let jumpPower = 0;        // 방금 도약한 세기 (연출용)
-let crouch = 0;           // 도약 직전 웅크림 표시
+let power = 0;            // 0~1 — 웅크린 깊이. 이게 곧 뛸 거리가 된다
+let standY = null;        // 똑바로 섰을 때의 어깨 높이(기준선)
+let landed = null;        // 이번에 착지한 거리
+let jumpPower = 1;        // 도약 연출용 배율
+let crouch = 0;
 let jump = null, flag = 0;
 let confetti = [], sparks = [];
 const shake = new ScreenShake();
@@ -253,37 +236,32 @@ let lastFrameAt = 0;
 
 // 어깨 너비의 이만큼 솟구치면 "뛰었다"고 본다. 서서 점프하면 어깨가, 앉아서 하면 두 팔이 솟는다.
 const JUMP_POWER = 0.17;
+// 어깨가 이만큼(어깨 너비 대비) 내려가면 최대 파워 — 깊게 앉을수록 멀리 뛴다
+const CROUCH_FULL = 0.55;
 
-// 모래밭 영역 — 매트는 이 안에 나란히 놓인다
+// 모래밭 영역 — 눈금자가 이 위에 깔린다
 function pit() {
   const { w, h } = dims;
-  return { x: w * 0.30, y: h * 0.60, w: w * 0.66, h: h * 0.26 };
+  return { x: w * 0.26, y: h * 0.62, w: w * 0.70, h: h * 0.24 };
 }
-
-function layoutMats() {
+// 거리(m) → 화면 x
+function dToX(d) {
   const p = pit();
-  const n = round.options.length;
-  const gap = p.w * 0.035;
-  const mw = (p.w - gap * (n + 1)) / n;
-  const mh = p.h * 0.52;
-  mats = round.options.map((value, i) => ({
-    value,
-    x: p.x + gap * (i + 1) + mw * i + mw / 2,
-    y: p.y + p.h * 0.52,
-    w: mw, h: mh,
-    bad: 0, good: 0,
-  }));
+  return p.x + (Math.max(0, Math.min(MAXD, d)) / MAXD) * p.w;
 }
+// 지금 웅크린 깊이로 예상되는 착지 거리
+function predicted() { return MIND + power * (MAXD - MIND); }
 
 function newRound() {
   round = genRound(autoDiff.level);
-  layoutMats();
   resolving = false;
-  aimIdx = -1;
   jump = null;
   flag = 0;
   jumpPower = 1;
   crouch = 0;
+  power = 0;
+  landed = null;
+  standY = null;
   motion.reset();
   roundAt = performance.now();
 }
@@ -336,52 +314,54 @@ function beginPlay() {
   });
 }
 
-// 도움닫기 → 도약 — 고른 매트로 재보가 포물선을 그리며 날아간다
-function launch(mat, ok) {
+// 도움닫기 → 도약 — 고른 매트로 선수가 포물선을 그리며 날아간다
+function launch(ok) {
   const { w, h } = dims;
-  jump = { fromX: w * 0.13, fromY: h * 0.74, toX: mat.x, toY: mat.y - mat.h * 0.5, at: performance.now(), ok, power: jumpPower };
+  const pt = pit();
+  jump = { fromX: dToX(0), fromY: pt.y - pt.h * 0.1, toX: dToX(landed), toY: pt.y + pt.h * 0.42,
+           at: performance.now(), ok, power: jumpPower };
   if (!isMuted()) sound.swoosh();
 }
 
-function succeed(mat) {
+function succeed() {
   resolving = true;
   count++;
-  mat.good = 1;
-  launch(mat, true);
+  const pt = pit(); const lx = dToX(landed), ly = pt.y + pt.h * 0.42;
+  launch(true);
   autoDiff.reportCorrect();
   autoRec.trigger();
   setTimeout(() => {
     if (state !== "playing") return;
-    party.correct(mat.x, mat.y, { base: 11, elapsedMs: performance.now() - roundAt });
+    party.correct(lx, ly, { base: 11, elapsedMs: performance.now() - roundAt });
     if (party.combo > 0 && party.combo === party.maxCombo) comboShot.capture(canvas);
     shake.trigger(9, 220);
     flag = 1;
     if (!isMuted()) sound.hit("perfect");
     // 모래가 튀어 오른다
-    spawnSparkles(sparks, mat.x, mat.y, 26, ["#f2e3b8", "#e8d49a", "#fff"]);
-    spawnSparkles(sparks, mat.x - 45, mat.y - 10, 12, ["#f2e3b8", PARTY.gold]);
-    spawnSparkles(sparks, mat.x + 45, mat.y - 10, 12, ["#f2e3b8", PARTY.gold]);
+    spawnSparkles(sparks, lx, ly, 26, ["#f2e3b8", "#e8d49a", "#fff"]);
+    spawnSparkles(sparks, lx - 45, ly - 10, 12, ["#f2e3b8", PARTY.gold]);
+    spawnSparkles(sparks, lx + 45, ly - 10, 12, ["#f2e3b8", PARTY.gold]);
     if (party.combo > 0 && party.combo % 5 === 0) {
-      spawnConfetti(confetti, mat.x, mat.y - 60, 44);
+      spawnConfetti(confetti, lx, ly - 60, 44);
       if (!isMuted()) sound.fever();
     }
   }, 620);
   setTimeout(() => { if (state === "playing") newRound(); }, 1450);
 }
 
-function missed(mat) {
+function missed() {
   resolving = true;
-  mat.bad = 1;
-  launch(mat, false);
+  const pt = pit(); const lx = dToX(landed), ly = pt.y + pt.h * 0.42;
+  launch(false);
   autoDiff.reportWrong();
   lockUntil = performance.now() + 1400;
   setTimeout(() => {
     if (state !== "playing") return;
-    party.wrong(mat.x, mat.y, "자리 수를 세어 봐요!");
+    party.wrong(lx, ly, "자리 수를 세어 봐요!");
     shake.trigger(6, 170);
     flag = -1;
     if (!isMuted()) sound.wrong();
-    spawnSparkles(sparks, mat.x, mat.y, 14, ["#f2e3b8", CUTE.orangeDark]);
+    spawnSparkles(sparks, lx, ly, 14, ["#f2e3b8", CUTE.orangeDark]);
   }, 620);
   setTimeout(() => { if (state === "playing") newRound(); }, 1450);
 }
@@ -441,48 +421,48 @@ function goReady() {
   }, 500);
 }
 
-// ── 조준: 손목 좌우 위치로 매트를 고른다 ──────────────────────────────────
-function updateAim() {
-  aimIdx = -1;
-  if (resolving) { aimX = null; return; }
-  if (mode === "motion") {
-    const f = motion.last;
-    if (!f) { aimX = null; return; }
-    // 더 높이 든 손으로 겨눈다 — 한 손만 들어도, 두 손을 들어도 자연스럽다
-    aimX = (f.lw.y < f.rw.y) ? f.lw.x : f.rw.x;
-  } else {
+// ── 조준: 웅크린 깊이가 곧 뛸 거리 ─────────────────────────────────────────
+// 보기 중에서 고르는 게 아니라, 몸을 얼마나 낮추느냐가 그대로 답이 된다.
+function updatePower() {
+  if (resolving) return;
+  if (mode !== "motion") {
+    // 터치·마우스: 모래밭 위 좌우 위치가 곧 거리
     const p = cursors[0];
-    aimX = p ? p.x : null;
+    if (p) {
+      const pt = pit();
+      power = Math.max(0, Math.min(1, ((p.x - pt.x) / pt.w * MAXD - MIND) / (MAXD - MIND)));
+    }
+    return;
   }
-  if (aimX === null) return;
-  let best = Infinity;
-  for (let i = 0; i < mats.length; i++) {
-    const d = Math.abs(aimX - mats[i].x);
-    if (d < best) { best = d; aimIdx = i; }
-  }
+  const f = motion.last;
+  if (!f) return;
+  // 처음 몇 프레임의 어깨 높이를 "똑바로 선 상태"로 삼는다
+  if (standY === null) { standY = f.sc.y; return; }
+  standY = Math.min(standY, f.sc.y);                 // 더 높이 선 적이 있으면 그쪽을 기준으로
+  const drop = (f.sc.y - standY) / f.unit;           // 어깨가 내려간 정도 (어깨 너비 단위)
+  power = Math.max(0, Math.min(1, drop / CROUCH_FULL));
+  crouch = power;
 }
 
-// ── 도약: 실제로 뛰거나(어깨가 솟음) 두 팔을 힘껏 위로 뻗으면 날아오른다 ──
+// ── 도약: 웅크렸다가 솟구치면 그 세기로 날아간다 ──
 function detectJump(now) {
-  if (resolving || now < lockUntil || aimIdx < 0) return;
+  if (resolving || now < lockUntil) return;
   if (mode !== "motion") {
     if (pointerInput && pointerInput.consumeJustDown()) leap(1);
     return;
   }
   const j = motion.jump();
-  if (!j) return;
-  crouch = Math.max(0, Math.min(1, -j.power * 3));   // 내려가는 중이면 웅크림으로 표시
-  if (j.power > JUMP_POWER) leap(j.power / JUMP_POWER);
+  if (j && j.power > JUMP_POWER) leap(j.power / JUMP_POWER);
 }
 
-function leap(power) {
-  const mat = mats[aimIdx];
-  if (!mat) return;
-  jumpPower = Math.max(1, Math.min(2.2, power));
+function leap(boost) {
+  const dist = predicted();
+  landed = Math.round(dist * 100) / 100;
+  jumpPower = Math.max(1, Math.min(2.2, boost));
   motion.reset();
   crouch = 0;
-  if (Math.abs(mat.value - round.answer) < 1e-9) succeed(mat);
-  else missed(mat);
+  if (Math.abs(landed - round.answer) <= round.tol) succeed();
+  else missed();
 }
 
 // ── 도움닫기 트랙과 모래밭 ──
@@ -511,41 +491,86 @@ function drawField(ctx) {
     { lineWidth: fluidPx(dims, 4, { min: 3, max: 6 }), drop: fluidPx(dims, 4, { min: 3, max: 7 }) });
 }
 
-function drawMats(ctx, now) {
-  for (let i = 0; i < mats.length; i++) {
-    const m = mats[i];
-    let color = LANE_COLORS[i % LANE_COLORS.length];
-    if (m.good > 0) color = CUTE.green;
-    else if (m.bad > 0) color = CUTE.orangeDark;
-    drawStickerRect(ctx, m.x, m.y, m.w, m.h, Math.min(m.w, m.h) * 0.22, color, {
-      lineWidth: fluidPx(dims, 4, { min: 3, max: 6 }), drop: fluidPx(dims, 4, { min: 3, max: 7 }),
-    });
-    const fs = Math.min(m.h * 0.52, m.w * 0.42);
-    drawChunkyText(ctx, fmt(m.value), m.x, m.y, fs, "#fff",
-      { outline: CUTE.ink, outlineWidth: Math.max(3, fs * 0.18) });
+// ── 모래밭 눈금자 + 정답 구역 + 예상 착지점 ──
+function drawRuler(ctx, now) {
+  const pt = pit();
+  const baseY = pt.y + pt.h * 0.42;
 
-    // 지금 뛰면 착지할 매트 — 테두리와 화살표로 미리 알려 준다
-    if (i === aimIdx && !resolving) {
-      const pulse = 0.5 + 0.5 * Math.sin(now / 160);
-      ctx.save();
-      ctx.strokeStyle = PARTY.gold;
-      ctx.lineWidth = fluidPx(dims, 6, { min: 4, max: 9 });
-      ctx.lineJoin = "round";
-      ctx.strokeRect(m.x - m.w / 2 - 6, m.y - m.h / 2 - 6, m.w + 12, m.h + 12);
-      const ay = m.y - m.h * (1.1 + pulse * 0.12);
-      ctx.fillStyle = PARTY.gold;
-      ctx.beginPath();
-      ctx.moveTo(m.x, ay + m.h * 0.32);
-      ctx.lineTo(m.x - m.w * 0.10, ay);
-      ctx.lineTo(m.x + m.w * 0.10, ay);
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
+  // 눈금
+  ctx.save();
+  ctx.strokeStyle = CUTE.ink;
+  ctx.lineWidth = fluidPx(dims, 3, { min: 2, max: 4.5 });
+  ctx.beginPath(); ctx.moveTo(dToX(0), baseY); ctx.lineTo(dToX(MAXD), baseY); ctx.stroke();
+  const fs = fluidPx(dims, 14, { min: 10, max: 19 });
+  for (let d = 0; d <= MAXD + 1e-9; d += 0.1) {
+    const big = Math.abs(d * 2 - Math.round(d * 2)) < 1e-9;      // 0.5 단위는 길게
+    const x = dToX(d);
+    ctx.beginPath();
+    ctx.moveTo(x, baseY);
+    ctx.lineTo(x, baseY + (big ? fs * 0.9 : fs * 0.45));
+    ctx.lineWidth = big ? fluidPx(dims, 2.6, { min: 2, max: 3.6 }) : fluidPx(dims, 1.4, { min: 1, max: 2 });
+    ctx.stroke();
+    if (big) {
+      ctx.fillStyle = CUTE.ink;
+      ctx.font = `900 ${fs}px sans-serif`;
+      ctx.textAlign = "center"; ctx.textBaseline = "top";
+      ctx.fillText(fmt(d), x, baseY + fs * 1.1);
     }
   }
+  ctx.restore();
+
+  // 결과가 나온 뒤에만 정답 구역을 펼쳐 보여 준다 (미리 보이면 답을 알려 주는 셈)
+  if (landed !== null) {
+    const x0 = dToX(round.answer - round.tol), x1 = dToX(round.answer + round.tol);
+    ctx.save();
+    ctx.fillStyle = "rgba(81,207,102,0.30)";
+    ctx.fillRect(x0, baseY - pt.h * 0.30, x1 - x0, pt.h * 0.30);
+    ctx.strokeStyle = CUTE.greenDark;
+    ctx.lineWidth = fluidPx(dims, 3, { min: 2, max: 4.5 });
+    ctx.strokeRect(x0, baseY - pt.h * 0.30, x1 - x0, pt.h * 0.30);
+    const ax = dToX(round.answer);
+    drawChunkyText(ctx, `정답 ${fmt(round.answer)}`, ax, baseY - pt.h * 0.42,
+      fluidPx(dims, 17, { min: 13, max: 23 }), "#fff",
+      { outline: CUTE.greenDark, outlineWidth: fluidPx(dims, 5, { min: 3.5, max: 7 }) });
+    // 내가 착지한 자리
+    const mx = dToX(landed);
+    drawSticker(ctx, mx, baseY, fluidPx(dims, 11, { min: 8, max: 15 }),
+      Math.abs(landed - round.answer) <= round.tol ? CUTE.green : CUTE.red, { lineWidth: 3 });
+    drawChunkyText(ctx, `${fmt(landed)} m`, mx, baseY + pt.h * 0.62,
+      fluidPx(dims, 16, { min: 12, max: 21 }), "#fff",
+      { outline: CUTE.ink, outlineWidth: fluidPx(dims, 5, { min: 3.5, max: 7 }) });
+    ctx.restore();
+    return;
+  }
+
+  // 아직 안 뛰었으면 — 지금 뛰면 닿을 자리를 실시간으로 보여 준다
+  const px = dToX(predicted());
+  const pulse = 0.5 + 0.5 * Math.sin(now / 170);
+  ctx.save();
+  ctx.setLineDash([8, 6]);
+  ctx.strokeStyle = PARTY.gold;
+  ctx.lineWidth = fluidPx(dims, 3.5, { min: 2.5, max: 5 });
+  ctx.beginPath(); ctx.moveTo(px, baseY - pt.h * 0.55); ctx.lineTo(px, baseY); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+  drawSticker(ctx, px, baseY - pt.h * 0.55, fluidPx(dims, 10 + pulse * 2, { min: 8, max: 16 }), PARTY.gold, { lineWidth: 3 });
+  drawChunkyText(ctx, `${fmt(Math.round(predicted() * 100) / 100)} m`, px, baseY - pt.h * 0.75,
+    fluidPx(dims, 20, { min: 15, max: 27 }), "#fff",
+    { outline: CUTE.ink, outlineWidth: fluidPx(dims, 6, { min: 4, max: 8 }) });
+
+  // 파워 게이지 — 얼마나 웅크렸는지
+  const gy = pt.y - pt.h * 0.42, gw = pt.w * 0.55, gh = fluidPx(dims, 14, { min: 10, max: 20 });
+  const gx = pt.x + (pt.w - gw) / 2;
+  drawStickerRect(ctx, gx + gw / 2, gy, gw, gh, gh / 2, "rgba(255,255,255,0.75)", { lineWidth: 2.5, drop: 2, gloss: false });
+  ctx.save();
+  ctx.fillStyle = power > 0.72 ? PARTY.gold : power > 0.38 ? CUTE.orangeDark : CUTE.red;
+  ctx.beginPath();
+  ctx.roundRect(gx, gy - gh / 2, gw * power, gh, gh / 2);
+  ctx.fill();
+  ctx.restore();
 }
 
-// ── 재보 — 평소엔 트랙에서 대기, 고르면 포물선을 그리며 날아간다 ──
+// ── 선수 — 평소엔 트랙에서 대기, 도약하면 포물선을 그리며 날아간다 ──
 function drawAthlete(ctx, now, remain) {
   const { w, h } = dims;
   const r = fluidPx(dims, 26, { min: 19, max: 36 });
@@ -562,7 +587,7 @@ function drawAthlete(ctx, now, remain) {
   ctx.translate(x, y);
   ctx.rotate(spin);
   ctx.translate(-x, -y);
-  drawMascot(ctx, x, y, r, CHAR, party.currentMood(remain));
+  drawPlayer(ctx, x, y, r, CHAR, party.currentMood(remain));
   ctx.restore();
 }
 
@@ -625,7 +650,7 @@ function loop(tsMs) {
         { outline: CUTE.ink, outlineWidth: fluidPx(dims, 6, { min: 4, max: 8 }) });
     }
   } else {
-    for (const c of cursors) drawGloveCursor(ctx, c.x, c.y, fluidPx(dims, 44, { min: 32, max: 62 }), { active: aimIdx >= 0 });
+    for (const c of cursors) drawGloveCursor(ctx, c.x, c.y, fluidPx(dims, 44, { min: 32, max: 62 }), { active: power > 0.1 });
   }
   ctx.restore();
 }
@@ -640,15 +665,11 @@ function stepGame() {
   if (remain <= 0) { endGame(); return; }
   const now = performance.now();
 
-  updateAim();
+  updatePower();
   if (now - roundAt > 300) detectJump(now);
-  for (const m of mats) {
-    if (m.good > 0) m.good = Math.max(0, m.good - dt * 0.7);
-    if (m.bad > 0) m.bad = Math.max(0, m.bad - dt * 0.7);
-  }
 
   drawField(ctx);
-  drawMats(ctx, now);
+  drawRuler(ctx, now);
   drawAthlete(ctx, now, remain);
   drawJudge(ctx);
 
@@ -660,10 +681,10 @@ function stepGame() {
   ], fluidPx, { top: hudBottom });
 
   const guide = mode === "motion"
-    ? (aimIdx >= 0 ? "🏃 겨눴어요! 이제 힘껏 점프!" : "손을 들어 좌우로 움직여 매트를 겨눠요")
-    : "답이 적힌 매트를 겨누고 눌러요!";
+    ? (power > 0.12 ? "🏃 좋아요! 그대로 힘껏 점프!" : "무릎을 굽혀 웅크릴수록 멀리 뛰어요")
+    : "모래밭 위에서 좌우로 움직여 거리를 맞추고 눌러요!";
   drawChunkyText(ctx, guide, w * 0.5, h * 0.95, fluidPx(dims, 16, { min: 12, max: 22 }),
-    aimIdx >= 0 ? PARTY.gold : "#fff",
+    power > 0.12 ? PARTY.gold : "#fff",
     { outline: CUTE.ink, outlineWidth: fluidPx(dims, 5, { min: 3.5, max: 7 }) });
 
   party.update(dt);

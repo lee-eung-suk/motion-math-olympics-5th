@@ -22,13 +22,15 @@ export const PARTY = {
 // 마스코트 6마리 — 종목마다 담당 캐릭터가 룰 설명·응원·아쉬움을 다 표현한다.
 // 이모지 기반이라 이미지 파일 없이 바로 동작하고, 나중에 그림으로 교체할 수 있다.
 // ---------------------------------------------------------------------------
+// 종목별 색과 아이콘 — 동물 마스코트는 쓰지 않는다.
+// 아이콘은 그 종목의 운동 종목을 그대로 가리키고, color는 UI 배색에만 쓴다.
 export const CHARACTERS = {
-  f1: { emoji: "🐰", name: "깡총이", color: CUTE.pink, cheer: "야호! 멀리 뛰어 보자!" },
-  f2: { emoji: "🐿️", name: "도토리", color: CUTE.orange, cheer: "딱 그만큼만 던지는 거야!" },
-  f3: { emoji: "🐧", name: "미로", color: CUTE.blue, cheer: "거울처럼 똑같이!" },
-  f4: { emoji: "🦊", name: "재보", color: CUTE.red, cheer: "눈금 잘 세어 봐~" },
-  f5: { emoji: "🐻", name: "네모곰", color: CUTE.orangeDark, cheer: "상자를 머릿속에서 접어 봐!" },
-  f6: { emoji: "🐼", name: "고르미", color: CUTE.purple, cheer: "고르게 나누면 평균이야!" },
+  f1: { emoji: "⚾", name: "", color: CUTE.pink,       cheer: "수직선 위 내 자리를 찾아요!" },
+  f2: { emoji: "🥎", name: "", color: CUTE.orange,     cheer: "딱 그만큼만 던지는 거예요!" },
+  f3: { emoji: "🪞", name: "", color: CUTE.blue,       cheer: "거울처럼 똑같이!" },
+  f4: { emoji: "🏃", name: "", color: CUTE.red,        cheer: "계산한 만큼 힘껏 뛰어요!" },
+  f5: { emoji: "🏏", name: "", color: CUTE.orangeDark, cheer: "머릿속에서 상자를 접어 봐요!" },
+  f6: { emoji: "⚖️", name: "", color: CUTE.purple,     cheer: "고르게 나누면 평균이에요!" },
 };
 
 // 표정 5종 — 캐릭터 아래에 작게 붙는 기분 뱃지
@@ -447,13 +449,29 @@ export class Party {
 // 룰카드 — 게임 시작 전 캐릭터가 말풍선으로 조작법을 설명한다.
 // 모션 모드에서는 아이가 화면에서 떨어져 있을 수 있어 7초 뒤 자동으로 넘어간다.
 // ---------------------------------------------------------------------------
+// 동물 마스코트를 대신하는 어린이 선수 표시.
+// 종목 아이콘을 동그란 스티커에 얹어, 캐릭터가 아니라 "선수"로 읽히게 한다.
+export function drawAthlete(ctx, x, y, r, char, mood = "idle") {
+  const bounce = mood === "happy" ? Math.sin(performance.now() / 110) * r * 0.16 : 0;
+  ctx.save();
+  ctx.translate(0, -bounce);
+  drawSticker(ctx, x, y, r, char.color, { lineWidth: Math.max(3, r * 0.14) });
+  ctx.font = `${r * 1.15}px sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(mood === "sad" ? "😣" : "🧒", x, y + r * 0.06);
+  ctx.restore();
+}
+
 export function showRuleCard({ unit, title, lines, autoMs = 7000 }) {
   return new Promise((resolve) => {
     const char = CHARACTERS[unit];
     const panel = document.getElementById("rulePanel");
     if (!panel) { resolve(); return; }
     panel.querySelector(".rule-char").textContent = char.emoji;
-    panel.querySelector(".rule-name").textContent = char.name;
+    const nameEl = panel.querySelector(".rule-name");
+    nameEl.textContent = char.name;
+    nameEl.style.display = char.name ? "" : "none";
     panel.querySelector(".rule-title").textContent = title;
     panel.querySelector(".rule-cheer").textContent = `"${char.cheer}"`;
     const ul = panel.querySelector(".rule-list");

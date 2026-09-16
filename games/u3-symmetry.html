@@ -25,9 +25,9 @@
   <div class="overlay-panel" id="rulePanel" style="display:none">
     <div class="rule-card">
       <div class="rule-head">
-        <div class="rule-char">🐧</div>
+        <div class="rule-char">🪞</div>
         <div>
-          <div class="rule-name">미로 & 라로</div>
+          <div class="rule-name"></div>
           <h2 class="rule-title">대칭 미러 수비</h2>
         </div>
       </div>
@@ -88,7 +88,7 @@ import {
 } from "../js/cute.js?v=7";
 import {
   PARTY, CHARACTERS, Party, drawTwoHandHint,
-  drawPartyBackdrop, drawCrowd, drawMascot,
+  drawPartyBackdrop, drawCrowd, drawAthlete as drawPlayer,
   showRuleCard, renderPodium, irisTransition,
 } from "../js/party.js?v=2";
 requestWakeLock();
@@ -98,7 +98,7 @@ const TITLE = "대칭 미러 수비";
 const RECORD_SUFFIX = "번 수비";
 const MEDALS = { bronze: 4, silver: 8, gold: 12 };
 const CHAR = CHARACTERS[UNIT];
-const CHAR2 = { emoji: "🐧", name: "라로", color: CUTE.cyan, cheer: "" };
+const CHAR2 = { emoji: "🪞", name: "", color: CUTE.cyan, cheer: "" };
 const mode = InputMode.get();
 
 const video = document.getElementById("video");
@@ -510,9 +510,6 @@ function stepGame() {
   const pr = fluidPx(dims, 20, { min: 15, max: 27 });
   const anchor = { x: sym.cx + (f.x1 - f.x0) * 0.38, y: sym.cy - (f.y1 - f.y0) * 0.42 };
   const anchor2 = sym.mirror(anchor);
-  drawMascot(ctx, anchor.x, anchor.y, pr, CHAR, party.currentMood(remain));
-  drawMascot(ctx, anchor2.x, anchor2.y, pr, CHAR2, party.currentMood(remain));
-
   // 거울 손 — 내 손의 대칭 위치를 항상 보여 준다. 이게 이 종목의 핵심 학습 장치다.
   if (pair) {
     for (const p of [pair.a, pair.b]) {

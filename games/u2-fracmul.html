@@ -25,9 +25,9 @@
   <div class="overlay-panel" id="rulePanel" style="display:none">
     <div class="rule-card">
       <div class="rule-head">
-        <div class="rule-char">🐿️</div>
+        <div class="rule-char">🥎</div>
         <div>
-          <div class="rule-name">도토리</div>
+          <div class="rule-name"></div>
           <h2 class="rule-title">백스윙 투척</h2>
         </div>
       </div>
@@ -86,7 +86,7 @@ import {
   drawBunting, drawGloveCursor, drawLevelStars, drawCuteBanner,
 } from "../js/cute.js?v=7";
 import {
-  PARTY, CHARACTERS, Party, drawPartyBackdrop, drawCrowd, drawMascot,
+  PARTY, CHARACTERS, Party, drawPartyBackdrop, drawCrowd, drawAthlete as drawPlayer,
   showRuleCard, renderPodium, irisTransition,
 } from "../js/party.js?v=2";
 requestWakeLock();
@@ -497,8 +497,6 @@ function stepGame() {
   ctx.rotate(-lean);
   drawStickerRect(ctx, cr * 0.6, 0, cr * 2.3, cr * 1.05, cr * 0.4, CUTE.orangeDark, { lineWidth: 3.5 });
   ctx.restore();
-  drawMascot(ctx, cx, cy - cr * 1.7, cr, CHAR, party.currentMood(remain));
-
   // 당기는 중 — 예상 착지점과 포물선 미리보기
   if (phase === "aim" && pull > 0.2) {
     const px = mToX(Math.round(pull * 2) / 2);

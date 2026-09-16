@@ -25,9 +25,9 @@
   <div class="overlay-panel" id="rulePanel" style="display:none">
     <div class="rule-card">
       <div class="rule-head">
-        <div class="rule-char">🐰</div>
+        <div class="rule-char">⚾</div>
         <div>
-          <div class="rule-name">깡총이</div>
+          <div class="rule-name"></div>
           <h2 class="rule-title">베이스 송구</h2>
         </div>
       </div>
@@ -87,7 +87,7 @@ import {
   drawBunting, drawGloveCursor, drawLevelStars, drawCuteBanner,
 } from "../js/cute.js?v=7";
 import {
-  PARTY, CHARACTERS, Party, drawPartyBackdrop, drawCrowd, drawMascot,
+  PARTY, CHARACTERS, Party, drawPartyBackdrop, drawCrowd, drawAthlete as drawPlayer,
   showRuleCard, renderPodium, irisTransition,
 } from "../js/party.js?v=2";
 requestWakeLock();
@@ -612,10 +612,9 @@ function stepGame() {
   drawGates(ctx, now);
   drawBall(ctx, now);
 
-  // 깡총이
+  // 선수
   const br = fluidPx(dims, 22, { min: 16, max: 30 });
-  drawMascot(ctx, w * 0.95, h * 0.40, br, CHAR, party.currentMood(remain));
-
+  drawPlayer(ctx, w * 0.95, h * 0.40, br, CHAR, party.currentMood(remain));
   const hudBottom = party.drawHud(ctx, dims, { remainMs: remain, count, suffix: "아웃" });
 
   drawCuteBanner(ctx, dims, [
