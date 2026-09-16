@@ -72,8 +72,9 @@
 <script type="module">
 import {
   HighScore, requestWakeLock, SoundKit, FileAudioLoop,
-  HandTracker, ClipRecorder, downloadBlob,
-  drawMirroredVideo, fitCanvasToScreen, isHandRaised, getCursors,
+  ClipRecorder, downloadBlob,
+  drawMirroredVideo, fitCanvasToScreen, getCursors,
+  PoseTracker, PoseMotion, posePoints, isArmRaised,
   AutoDifficulty, levelFromUrl, medalFor,
   scheduleAutoRecording, ComboShot, drawPhotoOverlay,
   ScreenShake, InputMode, PointerInput, StartGate, SmoothedPoint,
@@ -156,7 +157,8 @@ function genRound(level) {
   return { text: "1/2 × 4", value: 2 };
 }
 
-const handTracker = new HandTracker();
+const poseTracker = new PoseTracker();
+const motion = new PoseMotion();
 let pointerInput = null;
 
 async function init() {
@@ -170,7 +172,7 @@ async function init() {
       return;
     }
     document.getElementById("loadingText").textContent = "AI 모델을 불러오는 중…";
-    await handTracker.init(1);
+    await poseTracker.init();
   } else {
     pointerInput = new PointerInput(canvas);
   }
@@ -182,10 +184,10 @@ async function init() {
     lines: [
       "식을 계산해서 <b>몇 m 던져야 하는지</b> 알아내요.",
       mode === "motion"
-        ? "손을 <b>뒤(왼쪽)로 당길수록</b> 멀리 날아가요. 당긴 만큼 착지점이 눈금에 표시돼요."
+        ? "<b>몸을 뒤로 젖히며 팔을 당길수록</b> 멀리 날아가요. 당긴 만큼 착지점이 눈금에 표시돼요."
         : "화면을 누른 채 <b>왼쪽으로 당겼다가 놓으면</b> 날아가요.",
       mode === "motion"
-        ? "계산한 거리에 맞춰 당긴 뒤, <b>팔을 앞으로 확 휘두르면</b> 발사!"
+        ? "계산한 거리에 맞춰 당긴 뒤, <b>온몸으로 앞으로 확 휘두르면</b> 발사! (팔만 흔들면 안 돼요)"
         : "계산한 거리에 맞춰 당긴 뒤 <b>손을 떼면</b> 발사!",
       "문제는 늘 <b>(분수) × (자연수)</b> 꼴이고, <b>답은 자연수</b>예요. 편하게 계산해요!",
     ],
@@ -400,10 +402,11 @@ function loop(tsMs) {
 
   let result = null;
   if (mode === "motion") {
-    result = handTracker.detect(video, tsMs);
+    result = poseTracker.detect(video, tsMs);
+    motion.push(tsMs, posePoints(result), w, h, video);
     if (state === "raise") {
       let raised = false;
-      if (result && result.landmarks) for (const lm of result.landmarks) if (isHandRaised(lm)) raised = true;
+      raised = isArmRaised(posePoints(result));
       if (startGate.update(tsMs, raised)) goReady();
     }
   }
@@ -419,25 +422,27 @@ function loop(tsMs) {
 function updatePull(now) {
   const armed = now - roundAt > 700;
   if (mode === "motion") {
-    if (cursors.length === 0) return;
-    const p = smooth.push(cursors[0].x, cursors[0].y);
-    trail.push({ t: now, x: p.x, pull: xToPull(p.x) });
-    while (trail.length && now - trail[0].t > 260) trail.shift();
-    pull = xToPull(p.x);
+    const f = motion.last;
+    if (!f) return;
+    // 던지는 손 = 더 뒤(왼쪽)에 있는 손목. 어깨에서 얼마나 뒤로 뺐는지를 어깨 너비로 잰다.
+    // 어깨 기준이라 팔만 흔드는 것과 몸을 젖혀 당기는 것이 구분된다.
+    const back = (f.sc.x - Math.min(f.lw.x, f.rw.x)) / f.unit;
+    pull = Math.max(0, Math.min(1, (back - 0.25) / 1.15)) * MAXM;
 
-    // 260ms 안에 화면 폭의 12% 이상 오른쪽으로 움직였으면 "던졌다"고 본다
+    // 앞으로 확 휘두르면 발사 — 그때 당겼던 세기로 날아간다
+    trail.push({ t: now, x: Math.min(f.lw.x, f.rw.x), pull });
+    while (trail.length && now - trail[0].t > 260) trail.shift();
     if (armed && trail.length >= 3) {
-      const oldest = trail[0];
-      if (p.x - oldest.x > dims.w * 0.12) {
-        fire(oldest.pull);                  // 세기는 "당겼던 그 순간"의 값
-        trail = []; smooth.reset(); pull = 0;
+      const sw = motion.swing(200);
+      if (sw && sw.speed > 1.4 && sw.dx > 0) {
+        fire(trail[0].pull);
+        trail = []; motion.reset(); pull = 0;
       }
     }
     return;
   }
 
   // 터치/마우스: 누른 채 당겼다가 떼면 발사 (새총)
-  // 누르고 떼는 게 한 프레임 안에 다 일어나도 놓치지 않도록 consumeJustDown으로 눌림을 걸어 둔다
   const pts = pointerInput ? pointerInput.points : [];
   const justDown = pointerInput ? pointerInput.consumeJustDown() : false;
   const down = pointerInput && pointerInput.down && pts.length > 0;
@@ -497,6 +502,7 @@ function stepGame() {
   ctx.rotate(-lean);
   drawStickerRect(ctx, cr * 0.6, 0, cr * 2.3, cr * 1.05, cr * 0.4, CUTE.orangeDark, { lineWidth: 3.5 });
   ctx.restore();
+  drawPlayer(ctx, cx, cy - cr * 1.7, cr, CHAR, party.currentMood(remain));
   // 당기는 중 — 예상 착지점과 포물선 미리보기
   if (phase === "aim" && pull > 0.2) {
     const px = mToX(Math.round(pull * 2) / 2);

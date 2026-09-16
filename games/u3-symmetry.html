@@ -151,6 +151,9 @@ async function init() {
       mode === "motion"
         ? "가만히 대고 있으면 안 돼요. <b>팔을 휙 휘둘러 쳐내야</b> 아웃이 됩니다!"
         : "가만히 있으면 안 돼요. 자리를 잡고 <b>화면을 눌러</b> 쳐내세요!",
+      mode === "motion"
+        ? "<b>온몸이 거울처럼</b> 되어야 해요. 선대칭은 몸을 <b>곧게</b>, 점대칭은 <b>기울여서</b>!"
+        : "",
       "손을 움직이면 반대편에 <b>거울 손</b>이 같이 움직여요. 그 거울 손을 타구에 맞추면 돼요.",
       "두 손이 대칭이 되면 손 사이에 <b>초록 줄</b>이 켜져요.",
       mode !== "motion" ? "손가락이 하나면 <b>대칭인 자리만</b> 짚으면 돼요 (공을 짚는 게 아니에요)." : "",
@@ -464,6 +467,15 @@ function stepGame() {
     // 두 손 자체가 서로 대칭인지 (연결선 표시용)
     const mb = sym.mirror(pair.a);
     symOk = Math.hypot(mb.x - pair.b.x, mb.y - pair.b.y) < R * 0.9;
+    // 손만 맞추고 몸은 비뚤어져 있으면 "거울 자세"가 아니다.
+    // 선대칭이면 몸통이 곧게, 점대칭이면 오히려 몸을 기울여야 자연스럽다.
+    const f = motion.last;
+    if (mode === "motion" && f) {
+      const tilt = Math.abs(f.tiltDeg);
+      const wantTilt = sym.kind === "point";
+      const postureOk = wantTilt ? tilt > 8 : tilt < 14;
+      if (!postureOk) good = false;
+    }
   }
   if (!resolving && armed) {
     // 멈춰서 자세만 잡고 있으면 안 된다 — 대칭 자리를 "지나가며 쳐내야" 아웃이다
